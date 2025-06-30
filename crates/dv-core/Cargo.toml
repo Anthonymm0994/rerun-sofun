@@ -1,0 +1,21 @@
+[package]
+name = "dv-core"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+parking_lot.workspace = true
+ahash.workspace = true
+serde.workspace = true
+chrono.workspace = true
+indexmap.workspace = true
+arrow.workspace = true
+async-trait.workspace = true
+num_cpus = "1.16"
+
+[dev-dependencies] 

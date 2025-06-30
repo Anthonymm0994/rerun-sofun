@@ -1,0 +1,24 @@
+[package]
+name = "dv-data"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+dv-core.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+parking_lot.workspace = true
+ahash.workspace = true
+serde.workspace = true
+chrono.workspace = true
+arrow.workspace = true
+csv.workspace = true
+rusqlite.workspace = true
+tokio.workspace = true
+rayon.workspace = true
+async-trait = "0.1"
+
+[dev-dependencies] 
