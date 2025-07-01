@@ -355,23 +355,30 @@ impl SpaceView for TimeSeriesView {
                     
                     // LEFT-CLICK: Highlight values at X-location (only if not dragging)
                     if left_clicked && !is_dragging {
-                        // Find nearest X coordinate for highlighting
+                        // Find nearest X coordinate
                         let mut best_dist = f64::INFINITY;
-                        let mut best_x = pointer_coord.x;
+                        let mut best_index = None;
                         
-                        for &x in &plot_data.x_values {
+                        for (idx, &x) in plot_data.x_values.iter().enumerate() {
                             let dist = (x - pointer_coord.x).abs();
                             if dist < best_dist {
                                 best_dist = dist;
-                                best_x = x;
+                                best_index = Some(idx);
                             }
                         }
                         
-                        // Store the highlighted X position for cross-plot sync
-                        if let Some(index) = plot_data.x_values.iter().position(|&x| x == best_x) {
-                            let mut hover_data = ctx.hovered_data.write();
-                            hover_data.view_id = Some(self.id.clone());
-                            hover_data.point_index = Some(index);
+                        // Check if any visible series has data at this point
+                        if let Some(index) = best_index {
+                            let has_visible_data = plot_data.series.iter().any(|series| {
+                                index < series.values.len()
+                            });
+                            
+                            // Only set highlight if there's visible data at this point
+                            if has_visible_data {
+                                let mut hover_data = ctx.hovered_data.write();
+                                hover_data.view_id = Some(self.id.clone());
+                                hover_data.point_index = Some(index);
+                            }
                         }
                     }
                 }

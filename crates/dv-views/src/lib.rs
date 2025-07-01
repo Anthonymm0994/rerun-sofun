@@ -11,7 +11,7 @@ pub use space_view::{SpaceView, SpaceViewId, SpaceViewConfig, SelectionState};
 pub use viewport::Viewport;
 pub use time_series_view::{TimeSeriesView, TimeSeriesConfig};
 pub use tables::{TableView, TableConfig};
-pub use plots::{ScatterPlotView, ScatterPlotConfig};
+pub use plots::{ScatterPlotView, ScatterPlotConfig, BarChartView, BarChartConfig};
 
 use std::sync::Arc;
 use parking_lot::RwLock;

@@ -228,6 +228,9 @@ struct FrogApp {
     
     /// Demo overlay
     demo_overlay: DemoOverlay,
+    
+    /// Frame accumulator for smooth playback at all speeds
+    frame_accumulator: f64,
 }
 
 impl FrogApp {
@@ -273,6 +276,7 @@ impl FrogApp {
             view_builder: None,
             frog_mascot: FrogMascot::new(),
             demo_overlay: DemoOverlay::new(),
+            frame_accumulator: 0.0,
         }
     }
     
@@ -616,8 +620,8 @@ impl FrogApp {
     
     /// Show welcome screen
     fn show_welcome_screen(&mut self, ui: &mut Ui) {
-        // Soft gradient background
-        let rect = ui.clip_rect();
+        // Get the available rect (which excludes the menu bar)
+        let rect = ui.available_rect_before_wrap();
         let painter = ui.painter();
         
         // Subtle animated gradient
@@ -851,11 +855,16 @@ impl eframe::App for FrogApp {
             let speed = self.viewer_context.time_control.read().speed;
             let dt = ctx.input(|i| i.stable_dt);
             
-            // Calculate how many frames to advance based on speed and time
+            // Calculate frames to advance using accumulator for smooth playback
             let frames_per_second = speed * 30.0; // Base rate of 30 FPS
-            let frame_advance = (frames_per_second * dt as f64) as usize;
+            self.frame_accumulator += frames_per_second * dt as f64;
             
+            // Only advance when we've accumulated at least one frame
+            let frame_advance = self.frame_accumulator as usize;
             if frame_advance > 0 {
+                // Subtract the frames we're advancing
+                self.frame_accumulator -= frame_advance as f64;
+                
                 // Advance navigation by calculated frames
                 let nav_context = self.viewer_context.navigation.get_context();
                 let current_pos = match &nav_context.position {
@@ -873,9 +882,12 @@ impl eframe::App for FrogApp {
                         let _ = self.viewer_context.navigation.seek_to(
                             dv_core::navigation::NavigationPosition::Sequential(0)
                         );
+                        // Reset accumulator when looping
+                        self.frame_accumulator = 0.0;
                     } else {
                         // Stop at end
                         self.viewer_context.time_control.write().playing = false;
+                        self.frame_accumulator = 0.0;
                     }
                 } else {
                     // Continue advancing
@@ -886,6 +898,9 @@ impl eframe::App for FrogApp {
             }
             
             ctx.request_repaint();
+        } else {
+            // Reset accumulator when not playing
+            self.frame_accumulator = 0.0;
         }
         
         // Check if we have data loaded

@@ -2,6 +2,7 @@
 
 use egui::{Ui, ScrollArea};
 use arrow::record_batch::RecordBatch;
+use arrow::array::Array;
 use serde_json::{json, Value};
 
 use crate::{SpaceView, SpaceViewId, SelectionState, ViewerContext};
@@ -96,7 +97,13 @@ impl TableView {
         }
         
         for _ in 0..data.num_columns() {
-            builder = builder.column(Column::initial(150.0).at_least(100.0).clip(true));
+            builder = builder.column(
+                Column::initial(150.0)
+                    .at_least(80.0)    // Minimum width
+                    .at_most(400.0)    // Maximum width to prevent excessive expansion
+                    .clip(true)
+                    .resizable(self.config.resizable_columns)
+            );
         }
         
         builder
@@ -177,6 +184,41 @@ impl SpaceView for TableView {
         
         // Draw the table
         if let Some(data) = &self.cached_data {
+            // Show summary statistics in a clean panel
+            ui.group(|ui| {
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new("📊 Summary").strong());
+                    ui.separator();
+                    ui.label(format!("Rows: {}", data.num_rows()));
+                    ui.separator();
+                    ui.label(format!("Columns: {}", data.num_columns()));
+                    
+                    // Add basic statistics for numeric columns
+                    for (idx, field) in data.schema().fields().iter().enumerate() {
+                        if field.data_type().is_numeric() {
+                            if let Some(column) = data.column(idx).as_any().downcast_ref::<arrow::array::Float64Array>() {
+                                let values: Vec<f64> = (0..column.len())
+                                    .filter_map(|i| if column.is_valid(i) { Some(column.value(i)) } else { None })
+                                    .collect();
+                                
+                                if !values.is_empty() {
+                                    let min = values.iter().fold(f64::INFINITY, |a, &b| a.min(b));
+                                    let max = values.iter().fold(f64::NEG_INFINITY, |a, &b| a.max(b));
+                                    let sum: f64 = values.iter().sum();
+                                    let mean = sum / values.len() as f64;
+                                    
+                                    ui.separator();
+                                    ui.label(format!("{}: min={:.2}, max={:.2}, mean={:.2}", 
+                                        field.name(), min, max, mean));
+                                }
+                            }
+                        }
+                    }
+                });
+            });
+            
+            ui.add_space(4.0);
+            
             ScrollArea::both()
                 .id_source(&self.id)
                 .show(ui, |ui| {

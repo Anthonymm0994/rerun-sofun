@@ -3,7 +3,7 @@
 use egui::{Context, Window, Ui, Vec2, Color32, Rect, Pos2, Sense, CursorIcon, Rounding, Stroke, Align2};
 use arrow::datatypes::{Schema, DataType};
 use std::sync::Arc;
-use dv_views::{SpaceView, TimeSeriesView, TableView, ScatterPlotView};
+use dv_views::{SpaceView, TimeSeriesView, TableView, ScatterPlotView, BarChartView};
 use dv_core::navigation::NavigationMode;
 use uuid;
 
@@ -869,12 +869,10 @@ impl ViewBuilderDialog {
                     views.push(Box::new(view));
                 }
                 ViewConfig::BarChart { title, category_column, value_column } => {
-                    // For now, create a time series view as placeholder
-                    // TODO: Implement proper bar chart view
                     let id = uuid::Uuid::new_v4();
-                    let mut view = TimeSeriesView::new(id, title.clone());
-                    view.config.x_column = Some(category_column.clone());
-                    view.config.y_columns = vec![value_column.clone()];
+                    let mut view = BarChartView::new(id, title.clone());
+                    view.config.category_column = category_column.clone();
+                    view.config.value_column = value_column.clone();
                     views.push(Box::new(view));
                 }
                 ViewConfig::Empty => {
