@@ -16,7 +16,7 @@ serde.workspace = true
 chrono.workspace = true
 arrow.workspace = true
 csv.workspace = true
-rusqlite.workspace = true
+rusqlite = { version = "0.30", features = ["bundled-full", "modern_sqlite"] }
 tokio.workspace = true
 rayon.workspace = true
 async-trait = "0.1"

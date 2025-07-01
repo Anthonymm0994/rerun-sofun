@@ -6,21 +6,66 @@ authors.workspace = true
 license.workspace = true
 
 [dependencies]
-dv-core.workspace = true
+dv-core = { path = "../dv-core" }
 dv-render.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
-parking_lot.workspace = true
-egui.workspace = true
-egui_plot = "0.24"
+parking_lot = { workspace = true }
+egui = { workspace = true }
+egui_plot = { workspace = true }
 egui_extras = "0.24"
 egui_dock = "0.9"
-arrow.workspace = true
+arrow = { workspace = true }
 async-trait.workspace = true
-serde.workspace = true
-serde_json.workspace = true
+serde = { workspace = true }
+serde_json = { workspace = true }
 tokio.workspace = true
 uuid = { version = "1.0", features = ["v4", "serde"] }
+
+# New dependencies for advanced plotting
+plotters = { version = "0.3", default-features = false, features = ["svg_backend", "bitmap_backend"] }
+ndarray = "0.15"
+ndarray-stats = "0.5"
+statrs = "0.16"
+nalgebra = "0.33"
+kiddo = "4.2"  # For spatial data structures
+polars = { version = "0.35", features = ["lazy"] }
+linfa = "0.7"  # For ML algorithms
+linfa-clustering = "0.7"
+linfa-reduction = "0.7"
+rand = "0.8"
+colorous = "1.0"  # For color schemes
+contour = "0.12"  # For contour plots
+
+# 3D rendering support
+wgpu = "0.19"
+bytemuck = "1.14"
+glam = "0.27"
+cgmath = "0.18"
+three-d = { version = "0.16", default-features = false, features = ["egui-gui"] }
+
+# Geographic visualization
+geo = "0.28"
+geo-types = "0.7"
+geojson = "0.24"
+rstar = "0.12"
+
+# Graph/Network visualization
+petgraph = "0.6"
+layout-rs = "0.1"
+
+# Additional utilities
+itertools = "0.12"
+rayon = "1.8"
+ordered-float = "4.2"
+num-traits = "0.2"
+
+# Data dependency
+dv-data = { path = "../dv-data" }
+
+# Added from the code block
+fdg-sim = "0.9"
+chrono = "0.4"
 
 [dev-dependencies] 

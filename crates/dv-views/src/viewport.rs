@@ -69,6 +69,29 @@ impl Viewport {
         self.dock_state = create_grid_dock_state(view_ids);
     }
     
+    /// Create a grid layout with explicit configuration
+    pub fn create_configured_layout(&mut self, views: Vec<Box<dyn SpaceView>>, layout_config: GridLayoutConfig) {
+        if views.is_empty() {
+            return;
+        }
+        
+        // Clear existing state
+        self.space_views.clear();
+        self.time_axis_views.clear();
+        
+        // Add all views and track time-series views
+        for view in views {
+            let id = view.id().clone();
+            if view.view_type() == "TimeSeriesView" {
+                self.time_axis_views.push(id.clone());
+            }
+            self.space_views.insert(id, view);
+        }
+        
+        // Create dock state based on grid configuration
+        self.dock_state = create_grid_from_config(layout_config);
+    }
+    
     /// Check if the viewport has any views
     pub fn is_empty(&self) -> bool {
         self.space_views.is_empty()
@@ -124,8 +147,22 @@ impl<'a> TabViewer for ViewportTabViewer<'a> {
     }
 }
 
+/// Grid layout configuration
+pub struct GridLayoutConfig {
+    pub grid_size: (usize, usize), // (cols, rows)
+    pub cells: Vec<GridCell>,
+}
+
+pub struct GridCell {
+    pub view_id: SpaceViewId,
+    pub grid_pos: (usize, usize),
+    pub grid_span: (usize, usize),
+}
+
 /// Create a grid layout for the dock state
 fn create_grid_dock_state(view_ids: Vec<SpaceViewId>) -> DockState<SpaceViewId> {
+    use egui_dock::NodeIndex;
+    
     if view_ids.is_empty() {
         return DockState::new(vec![]);
     }
@@ -134,45 +171,92 @@ fn create_grid_dock_state(view_ids: Vec<SpaceViewId>) -> DockState<SpaceViewId> 
         return DockState::new(vec![view_ids[0].clone()]);
     }
     
-    // For now, create a simple but effective layout
-    // Start with the first view as the main surface
-    let mut dock_state = DockState::new(vec![view_ids[0].clone()]);
+    // Create a proper grid layout based on number of views
+    let num_views = view_ids.len();
     
-    // Add other views strategically based on count
-    match view_ids.len() {
-        2..=4 => {
-            // For 2-4 views, add them to create a reasonable split
-            for id in view_ids.into_iter().skip(1) {
-                dock_state.push_to_first_leaf(id);
-            }
+    match num_views {
+        2 => {
+            // Side by side
+            let mut state = DockState::new(vec![view_ids[0].clone()]);
+            let [_left, _right] = state.main_surface_mut().split_right(
+                NodeIndex::root(), 
+                0.5, 
+                vec![view_ids[1].clone()]
+            );
+            state
         }
-        5..=8 => {
-            // For 5-8 views, create more structured layout
-            // Add half as individual panels, rest as tabs
-            let split_point = view_ids.len() / 2;
-            
-            for (idx, id) in view_ids.into_iter().skip(1).enumerate() {
-                if idx < split_point {
-                    dock_state.push_to_first_leaf(id);
-                } else {
-                    // Add as tabs to existing panels
-                    dock_state.push_to_first_leaf(id);
-                }
-            }
+        3 => {
+            // One on top, two below
+            let mut state = DockState::new(vec![view_ids[0].clone()]);
+            let [_top, bottom] = state.main_surface_mut().split_below(
+                NodeIndex::root(), 
+                0.5, 
+                vec![view_ids[1].clone()]
+            );
+            let [_left, _right] = state.main_surface_mut().split_right(
+                bottom, 
+                0.5, 
+                vec![view_ids[2].clone()]
+            );
+            state
+        }
+        4 => {
+            // 2x2 grid
+            let mut state = DockState::new(vec![view_ids[0].clone()]);
+            let [left, right] = state.main_surface_mut().split_right(
+                NodeIndex::root(), 
+                0.5, 
+                vec![view_ids[1].clone()]
+            );
+            let [_top_left, _bottom_left] = state.main_surface_mut().split_below(
+                left, 
+                0.5, 
+                vec![view_ids[2].clone()]
+            );
+            let [_top_right, _bottom_right] = state.main_surface_mut().split_below(
+                right, 
+                0.5, 
+                vec![view_ids[3].clone()]
+            );
+            state
         }
         _ => {
-            // For 9+ views, add first few as panels, rest as tabs
-            for (idx, id) in view_ids.into_iter().skip(1).enumerate() {
-                if idx < 3 {
-                    // First 3 additional views get their own space
-                    dock_state.push_to_first_leaf(id);
-                } else {
-                    // Rest become tabs
-                    dock_state.push_to_first_leaf(id);
+            // For more views, create a reasonable layout with tabs
+            let cols = ((num_views as f32).sqrt().ceil() as usize).max(2);
+            let mut state = DockState::new(vec![view_ids[0].clone()]);
+            
+            // Create columns first
+            let mut col_nodes = vec![NodeIndex::root()];
+            for i in 1..cols.min(num_views) {
+                if let Some(&last_col) = col_nodes.last() {
+                    let [_left, right] = state.main_surface_mut().split_right(
+                        last_col,
+                        1.0 / (cols - i + 1) as f32,
+                        vec![view_ids[i].clone()]
+                    );
+                    col_nodes.push(right);
                 }
             }
+            
+            // Add remaining views as tabs or in rows
+            for (i, id) in view_ids.into_iter().enumerate().skip(cols) {
+                let col_idx = (i - cols) % cols;
+                if col_idx < col_nodes.len() {
+                    state.push_to_focused_leaf(id);
+                }
+            }
+            
+            state
         }
     }
-    
-    dock_state
+}
+
+/// Create grid from explicit configuration
+fn create_grid_from_config(config: GridLayoutConfig) -> DockState<SpaceViewId> {
+    // For now, fall back to simple grid creation
+    // TODO: Implement proper grid creation from config
+    let view_ids: Vec<SpaceViewId> = config.cells.into_iter()
+        .map(|cell| cell.view_id)
+        .collect();
+    create_grid_dock_state(view_ids)
 } 

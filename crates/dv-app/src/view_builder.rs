@@ -3,9 +3,9 @@
 use egui::{Context, Window, Ui, Vec2, Color32, Rect, Pos2, Sense, CursorIcon, Rounding, Stroke, Align2};
 use arrow::datatypes::{Schema, DataType};
 use std::sync::Arc;
-use dv_views::{SpaceView, TimeSeriesView, TableView, ScatterPlotView, BarChartView};
-use dv_core::navigation::NavigationMode;
 use uuid;
+use dv_views::{SpaceView, TimeSeriesView, TableView, ScatterPlotView, BarChartView, SummaryStatsView};
+use dv_core::navigation::NavigationMode;
 
 /// Modern view builder dialog with visual layout editor
 pub struct ViewBuilderDialog {
@@ -35,6 +35,9 @@ pub struct ViewBuilderDialog {
     
     /// Preview mode
     preview_mode: bool,
+    
+    /// Selected cell for editing
+    selected_cell_id: Option<String>,
 }
 
 /// Column categorization and metadata
@@ -76,8 +79,9 @@ struct LayoutCell {
     view_config: ViewConfig,
 }
 
-#[derive(Clone)]
-enum ViewConfig {
+/// View configuration types
+#[derive(Debug, Clone)]
+pub enum ViewConfig {
     TimeSeries {
         title: String,
         x_column: Option<String>,
@@ -98,6 +102,119 @@ enum ViewConfig {
         category_column: String,
         value_column: String,
     },
+    SummaryStats {
+        title: String,
+    },
+    Line {
+        title: String,
+        x_column: Option<String>,
+        y_columns: Vec<String>,
+    },
+    Histogram {
+        title: String,
+        column: String,
+    },
+    BoxPlot {
+        title: String,
+        value_column: String,
+        category_column: Option<String>,
+    },
+    ViolinPlot {
+        title: String,
+        value_column: String,
+        category_column: Option<String>,
+    },
+    Heatmap {
+        title: String,
+        x_column: String,
+        y_column: String,
+        value_column: String,
+    },
+    AnomalyDetection {
+        title: String,
+        column: String,
+    },
+    CorrelationMatrix {
+        title: String,
+        columns: Vec<String>,
+    },
+    Scatter3D {
+        title: String,
+        x_column: String,
+        y_column: String,
+        z_column: String,
+    },
+    Surface3D {
+        title: String,
+        x_column: String,
+        y_column: String,
+        z_column: String,
+    },
+    ParallelCoordinates {
+        title: String,
+        columns: Vec<String>,
+    },
+    RadarChart {
+        title: String,
+        value_columns: Vec<String>,
+        group_column: Option<String>,
+    },
+    Contour {
+        title: String,
+        x_column: String,
+        y_column: String,
+        z_column: String,
+    },
+    Sankey {
+        title: String,
+        source_column: String,
+        target_column: String,
+        value_column: String,
+    },
+    Treemap {
+        title: String,
+        category_column: String,
+        value_column: String,
+    },
+    Sunburst {
+        title: String,
+        hierarchy_columns: Vec<String>,
+        value_column: Option<String>,
+    },
+    NetworkGraph {
+        title: String,
+        source_column: String,
+        target_column: String,
+    },
+    Distribution {
+        title: String,
+        column: String,
+    },
+    TimeAnalysis {
+        title: String,
+        time_column: String,
+        value_columns: Vec<String>,
+    },
+    GeoPlot {
+        title: String,
+        lat_column: String,
+        lon_column: String,
+        value_column: Option<String>,
+    },
+    StreamGraph {
+        title: String,
+        time_column: String,
+        value_column: String,
+        category_column: Option<String>,
+    },
+    CandlestickChart {
+        title: String,
+        time_column: String,
+        open_column: String,
+        high_column: String,
+        low_column: String,
+        close_column: String,
+    },
     Empty,
 }
 
@@ -117,6 +234,7 @@ enum NavigationModeChoice {
 struct DragState {
     source_id: String,
     offset: Vec2,
+    dragging_column: Option<ColumnInfo>,
 }
 
 impl ViewBuilderDialog {
@@ -148,6 +266,7 @@ impl ViewBuilderDialog {
             selected_nav_mode,
             show: true,
             preview_mode: false,
+            selected_cell_id: None,
         }
     }
     
@@ -206,6 +325,100 @@ impl ViewBuilderDialog {
     /// Create dashboard templates based on available columns
     fn create_templates(columns: &ColumnMetadata) -> Vec<DashboardTemplate> {
         let mut templates = Vec::new();
+        
+        // Mixed Layout Dashboard - New!
+        if !columns.numeric.is_empty() {
+            templates.push(DashboardTemplate {
+                name: "Mixed Layout Dashboard".to_string(),
+                description: "Two square views and one wide view (2 1x1 + 1 2x1)".to_string(),
+                icon: "🎯",
+                layout: DashboardLayout {
+                    grid_size: (2, 2),
+                    cells: vec![
+                        LayoutCell {
+                            id: "top-left".to_string(),
+                            grid_pos: (0, 0),
+                            grid_span: (1, 1),
+                            view_config: ViewConfig::TimeSeries {
+                                title: "Metric 1".to_string(),
+                                x_column: columns.temporal.first().map(|c| c.name.clone()),
+                                y_columns: columns.numeric.iter().take(1).map(|c| c.name.clone()).collect(),
+                            },
+                        },
+                        LayoutCell {
+                            id: "top-right".to_string(),
+                            grid_pos: (1, 0),
+                            grid_span: (1, 1),
+                            view_config: ViewConfig::Scatter {
+                                title: "Correlation".to_string(),
+                                x_column: columns.numeric.get(0).map(|c| c.name.clone()).unwrap_or_default(),
+                                y_column: columns.numeric.get(1).map(|c| c.name.clone()).unwrap_or_default(),
+                                color_column: columns.categorical.first().map(|c| c.name.clone()),
+                            },
+                        },
+                        LayoutCell {
+                            id: "bottom-wide".to_string(),
+                            grid_pos: (0, 1),
+                            grid_span: (2, 1),
+                            view_config: ViewConfig::Table {
+                                title: "Data Table".to_string(),
+                                columns: columns.all.iter().take(6).map(|c| c.name.clone()).collect(),
+                            },
+                        },
+                    ],
+                },
+                required_columns: TemplateRequirements {
+                    min_numeric: 1,
+                    min_temporal: 0,
+                    min_categorical: 0,
+                },
+            });
+            
+            // Vertical Split Dashboard
+            templates.push(DashboardTemplate {
+                name: "Vertical Split Dashboard".to_string(),
+                description: "One tall view and two stacked views (1 1x2 + 2 1x1)".to_string(),
+                icon: "📊",
+                layout: DashboardLayout {
+                    grid_size: (2, 2),
+                    cells: vec![
+                        LayoutCell {
+                            id: "left-tall".to_string(),
+                            grid_pos: (0, 0),
+                            grid_span: (1, 2),
+                            view_config: ViewConfig::TimeSeries {
+                                title: "Main Timeline".to_string(),
+                                x_column: columns.temporal.first().map(|c| c.name.clone()),
+                                y_columns: columns.numeric.iter().take(3).map(|c| c.name.clone()).collect(),
+                            },
+                        },
+                        LayoutCell {
+                            id: "right-top".to_string(),
+                            grid_pos: (1, 0),
+                            grid_span: (1, 1),
+                            view_config: ViewConfig::BarChart {
+                                title: "Summary".to_string(),
+                                category_column: columns.categorical.first().map(|c| c.name.clone()).unwrap_or_default(),
+                                value_column: columns.numeric.first().map(|c| c.name.clone()).unwrap_or_default(),
+                            },
+                        },
+                        LayoutCell {
+                            id: "right-bottom".to_string(),
+                            grid_pos: (1, 1),
+                            grid_span: (1, 1),
+                            view_config: ViewConfig::SummaryStats {
+                                title: "Statistics".to_string(),
+                            },
+                        },
+                    ],
+                },
+                required_columns: TemplateRequirements {
+                    min_numeric: 1,
+                    min_temporal: 0,
+                    min_categorical: 0,
+                },
+            });
+        }
         
         // Time Series Dashboard
         if !columns.numeric.is_empty() {
@@ -377,18 +590,13 @@ impl ViewBuilderDialog {
             .resizable(true)
             .collapsible(false)
             .show(ctx, |ui| {
-                // Modern header with tabs
-                ui.horizontal(|ui| {
-                    ui.style_mut().spacing.item_spacing = Vec2::new(16.0, 0.0);
-                    
-                    if ui.selectable_label(!self.preview_mode, "📐 Design").clicked() {
-                        self.preview_mode = false;
-                    }
-                    if ui.selectable_label(self.preview_mode, "👁️ Preview").clicked() {
-                        self.preview_mode = true;
-                    }
-                    
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            // Modern header
+            ui.horizontal(|ui| {
+                ui.style_mut().spacing.item_spacing = Vec2::new(16.0, 0.0);
+                
+                ui.label(egui::RichText::new("📐 Dashboard Designer").strong().size(16.0));
+                
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui.button("❌ Cancel").clicked() {
                             self.show = false;
                         }
@@ -404,11 +612,7 @@ impl ViewBuilderDialog {
                 
                 ui.separator();
                 
-                if self.preview_mode {
-                    self.show_preview(ui);
-                } else {
-                    self.show_designer(ui);
-                }
+                self.show_designer(ui);
             });
         
         result
@@ -522,6 +726,7 @@ impl ViewBuilderDialog {
                     
                     if ui.button("Clear All").clicked() {
                         self.layout.cells.clear();
+                        self.selected_cell_id = None;
                     }
                 });
                 
@@ -570,6 +775,7 @@ impl ViewBuilderDialog {
                 );
                 
                 // Draw cells
+                let mut clicked_cell_id = None;
                 for cell in &self.layout.cells {
                     let cell_rect = Rect::from_min_size(
                         Pos2::new(
@@ -582,7 +788,19 @@ impl ViewBuilderDialog {
                         )
                     );
                     
-                    self.draw_layout_cell(ui, &painter, cell_rect, cell);
+                    // Check if cell is clicked
+                    let cell_response = ui.interact(cell_rect, ui.id().with(&cell.id), Sense::click());
+                    if cell_response.clicked() {
+                        clicked_cell_id = Some(cell.id.clone());
+                    }
+                    
+                    let is_selected = self.selected_cell_id.as_ref() == Some(&cell.id);
+                    self.draw_layout_cell(ui, &painter, cell_rect, cell, is_selected);
+                }
+                
+                // Update selected cell after iteration
+                if let Some(id) = clicked_cell_id {
+                    self.selected_cell_id = Some(id);
                 }
                 
                 // Handle drop zones
@@ -671,44 +889,314 @@ impl ViewBuilderDialog {
                 ui.add_space(16.0);
                 
                 // Selected cell properties
-                // TODO: Add cell property editor when a cell is selected
+                if let Some(selected_id) = &self.selected_cell_id.clone() {
+                    // Find the cell and store needed data
+                    let cell_data = self.layout.cells.iter()
+                        .find(|c| c.id == *selected_id)
+                        .map(|cell| (
+                            cell.grid_pos.clone(),
+                            cell.grid_span.clone(),
+                        ));
+                    
+                    if let Some((grid_pos, grid_span)) = cell_data {
+                        ui.group(|ui| {
+                            ui.label(egui::RichText::new("Cell Properties").strong());
+                            ui.add_space(4.0);
+                            
+                            // Cell position and span controls
+                            ui.horizontal(|ui| {
+                                ui.label("Position:");
+                                ui.label(format!("({}, {})", grid_pos.0, grid_pos.1));
+                            });
+                            
+                            let mut span_changed = false;
+                            let mut new_span = grid_span;
+                            
+                            ui.horizontal(|ui| {
+                                ui.label("Size:");
+                                if ui.small_button("-W").clicked() && new_span.0 > 1 {
+                                    new_span.0 -= 1;
+                                    span_changed = true;
+                                }
+                                ui.label(format!("{}x{}", new_span.0, new_span.1));
+                                if ui.small_button("+W").clicked() && grid_pos.0 + new_span.0 < self.layout.grid_size.0 {
+                                    new_span.0 += 1;
+                                    span_changed = true;
+                                }
+                            });
+                            
+                            ui.horizontal(|ui| {
+                                ui.label("     ");
+                                if ui.small_button("-H").clicked() && new_span.1 > 1 {
+                                    new_span.1 -= 1;
+                                    span_changed = true;
+                                }
+                                ui.label("      ");
+                                if ui.small_button("+H").clicked() && grid_pos.1 + new_span.1 < self.layout.grid_size.1 {
+                                    new_span.1 += 1;
+                                    span_changed = true;
+                                }
+                            });
+                            
+                            // Apply span changes
+                            if span_changed {
+                                if let Some(cell) = self.layout.cells.iter_mut().find(|c| c.id == *selected_id) {
+                                    cell.grid_span = new_span;
+                                }
+                            }
+                            
+                            ui.separator();
+                            
+                            if ui.button("🗑️ Delete Cell").clicked() {
+                                self.layout.cells.retain(|c| c.id != *selected_id);
+                                self.selected_cell_id = None;
+                            }
+                        });
+                    }
+                }
+                
+                ui.add_space(16.0);
                 
                 // Quick actions
                 ui.group(|ui| {
                     ui.label(egui::RichText::new("Quick Actions").strong());
                     ui.add_space(4.0);
                     
-                    if ui.button("➕ Add Time Series").clicked() {
-                        self.add_view(ViewConfig::TimeSeries {
-                            title: "New Time Series".to_string(),
-                            x_column: self.columns.temporal.first().map(|c| c.name.clone()),
-                            y_columns: vec![],
-                        });
-                    }
-                    
-                    if ui.button("➕ Add Scatter Plot").clicked() && self.columns.numeric.len() >= 2 {
-                        self.add_view(ViewConfig::Scatter {
-                            title: "New Scatter Plot".to_string(),
-                            x_column: self.columns.numeric[0].name.clone(),
-                            y_column: self.columns.numeric[1].name.clone(),
-                            color_column: None,
-                        });
-                    }
-                    
-                    if ui.button("➕ Add Table").clicked() {
-                        self.add_view(ViewConfig::Table {
-                            title: "Data Table".to_string(),
-                            columns: vec![],
-                        });
-                    }
-                    
-                    if ui.button("➕ Add Bar Chart").clicked() && !self.columns.categorical.is_empty() && !self.columns.numeric.is_empty() {
-                        self.add_view(ViewConfig::BarChart {
-                            title: "Bar Chart".to_string(),
-                            category_column: self.columns.categorical[0].name.clone(),
-                            value_column: self.columns.numeric[0].name.clone(),
-                        });
-                    }
+                    egui::ScrollArea::vertical().max_height(400.0).show(ui, |ui| {
+                        ui.label(egui::RichText::new("Basic Plots").strong());
+                        
+                        if ui.button("📈 Add Time Series").clicked() {
+                            self.add_view(ViewConfig::TimeSeries {
+                                title: "New Time Series".to_string(),
+                                x_column: self.columns.temporal.first().map(|c| c.name.clone()),
+                                y_columns: vec![],
+                            });
+                        }
+                        
+                        if ui.button("📉 Add Line Plot").clicked() {
+                            self.add_view(ViewConfig::Line {
+                                title: "Line Plot".to_string(),
+                                x_column: None,
+                                y_columns: vec![],
+                            });
+                        }
+                        
+                        if ui.button("🎯 Add Scatter Plot").clicked() && self.columns.numeric.len() >= 2 {
+                            self.add_view(ViewConfig::Scatter {
+                                title: "New Scatter Plot".to_string(),
+                                x_column: self.columns.numeric[0].name.clone(),
+                                y_column: self.columns.numeric[1].name.clone(),
+                                color_column: None,
+                            });
+                        }
+                        
+                        if ui.button("📊 Add Bar Chart").clicked() && !self.columns.categorical.is_empty() && !self.columns.numeric.is_empty() {
+                            self.add_view(ViewConfig::BarChart {
+                                title: "Bar Chart".to_string(),
+                                category_column: self.columns.categorical[0].name.clone(),
+                                value_column: self.columns.numeric[0].name.clone(),
+                            });
+                        }
+                        
+                        if ui.button("📊 Add Table").clicked() {
+                            self.add_view(ViewConfig::Table {
+                                title: "Data Table".to_string(),
+                                columns: vec![],
+                            });
+                        }
+                        
+                        ui.separator();
+                        ui.label(egui::RichText::new("Statistical Plots").strong());
+                        
+                        if ui.button("📊 Add Histogram").clicked() && !self.columns.numeric.is_empty() {
+                            self.add_view(ViewConfig::Histogram {
+                                title: "Histogram".to_string(),
+                                column: self.columns.numeric[0].name.clone(),
+                            });
+                        }
+                        
+                        if ui.button("📦 Add Box Plot").clicked() && !self.columns.numeric.is_empty() {
+                            self.add_view(ViewConfig::BoxPlot {
+                                title: "Box Plot".to_string(),
+                                value_column: self.columns.numeric[0].name.clone(),
+                                category_column: self.columns.categorical.first().map(|c| c.name.clone()),
+                            });
+                        }
+                        
+                        if ui.button("🎻 Add Violin Plot").clicked() && !self.columns.numeric.is_empty() {
+                            self.add_view(ViewConfig::ViolinPlot {
+                                title: "Violin Plot".to_string(),
+                                value_column: self.columns.numeric[0].name.clone(),
+                                category_column: self.columns.categorical.first().map(|c| c.name.clone()),
+                            });
+                        }
+                        
+                        if ui.button("📊 Add Summary Stats").clicked() {
+                            self.add_view(ViewConfig::SummaryStats {
+                                title: "Summary Statistics".to_string(),
+                            });
+                        }
+                        
+                        if ui.button("🔗 Add Correlation Matrix").clicked() {
+                            self.add_view(ViewConfig::CorrelationMatrix {
+                                title: "Correlation Matrix".to_string(),
+                                columns: vec![],
+                            });
+                        }
+                        
+                        ui.separator();
+                        ui.label(egui::RichText::new("Advanced Analytics").strong());
+                        
+                        if ui.button("🚨 Add Anomaly Detection").clicked() && !self.columns.numeric.is_empty() {
+                            self.add_view(ViewConfig::AnomalyDetection {
+                                title: "Anomaly Detection".to_string(),
+                                column: self.columns.numeric[0].name.clone(),
+                            });
+                        }
+                        
+                        if ui.button("🔥 Add Heatmap").clicked() && self.columns.numeric.len() >= 1 {
+                            self.add_view(ViewConfig::Heatmap {
+                                title: "Heatmap".to_string(),
+                                x_column: self.columns.all[0].name.clone(),
+                                y_column: self.columns.all.get(1).map(|c| c.name.clone()).unwrap_or(self.columns.all[0].name.clone()),
+                                value_column: self.columns.numeric[0].name.clone(),
+                            });
+                        }
+                        
+                        ui.separator();
+                        ui.label(egui::RichText::new("3D Visualizations").strong());
+                        
+                        if ui.button("🌐 Add 3D Scatter").clicked() && self.columns.numeric.len() >= 3 {
+                            self.add_view(ViewConfig::Scatter3D {
+                                title: "3D Scatter".to_string(),
+                                x_column: self.columns.numeric[0].name.clone(),
+                                y_column: self.columns.numeric[1].name.clone(),
+                                z_column: self.columns.numeric[2].name.clone(),
+                            });
+                        }
+                        
+                        if ui.button("🏔️ Add 3D Surface").clicked() && self.columns.numeric.len() >= 3 {
+                            self.add_view(ViewConfig::Surface3D {
+                                title: "3D Surface".to_string(),
+                                x_column: self.columns.numeric[0].name.clone(),
+                                y_column: self.columns.numeric[1].name.clone(),
+                                z_column: self.columns.numeric[2].name.clone(),
+                            });
+                        }
+                        
+                        if ui.button("🗺️ Add Contour Plot").clicked() && self.columns.numeric.len() >= 3 {
+                            self.add_view(ViewConfig::Contour {
+                                title: "Contour Plot".to_string(),
+                                x_column: self.columns.numeric[0].name.clone(),
+                                y_column: self.columns.numeric[1].name.clone(),
+                                z_column: self.columns.numeric[2].name.clone(),
+                            });
+                        }
+                        
+                        ui.separator();
+                        ui.label(egui::RichText::new("Multi-dimensional").strong());
+                        
+                        if ui.button("🌟 Add Parallel Coordinates").clicked() {
+                            self.add_view(ViewConfig::ParallelCoordinates {
+                                title: "Parallel Coordinates".to_string(),
+                                columns: vec![],
+                            });
+                        }
+                        
+                        if ui.button("🕸️ Add Radar Chart").clicked() {
+                            self.add_view(ViewConfig::RadarChart {
+                                title: "Radar Chart".to_string(),
+                                value_columns: vec![],
+                                group_column: None,
+                            });
+                        }
+                        
+                        ui.separator();
+                        ui.label(egui::RichText::new("Flow & Hierarchy").strong());
+                        
+                        if ui.button("🌊 Add Sankey Diagram").clicked() && self.columns.categorical.len() >= 2 {
+                            self.add_view(ViewConfig::Sankey {
+                                title: "Sankey Diagram".to_string(),
+                                source_column: self.columns.categorical[0].name.clone(),
+                                target_column: self.columns.categorical[1].name.clone(),
+                                value_column: self.columns.numeric.first().map(|c| c.name.clone()).unwrap_or_default(),
+                            });
+                        }
+                        
+                        if ui.button("🌳 Add Treemap").clicked() && !self.columns.categorical.is_empty() && !self.columns.numeric.is_empty() {
+                            self.add_view(ViewConfig::Treemap {
+                                title: "Treemap".to_string(),
+                                category_column: self.columns.categorical[0].name.clone(),
+                                value_column: self.columns.numeric[0].name.clone(),
+                            });
+                        }
+                        
+                        if ui.button("☀️ Add Sunburst").clicked() && !self.columns.numeric.is_empty() {
+                            self.add_view(ViewConfig::Sunburst {
+                                title: "Sunburst".to_string(),
+                                hierarchy_columns: vec![],
+                                value_column: Some(self.columns.numeric.first().map(|c| c.name.clone()).unwrap_or_default()),
+                            });
+                        }
+                        
+                        if ui.button("🔗 Add Network Graph").clicked() && self.columns.categorical.len() >= 2 {
+                            self.add_view(ViewConfig::NetworkGraph {
+                                title: "Network Graph".to_string(),
+                                source_column: self.columns.categorical[0].name.clone(),
+                                target_column: self.columns.categorical[1].name.clone(),
+                            });
+                        }
+                        
+                        ui.separator();
+                        ui.label(egui::RichText::new("Specialized").strong());
+                        
+                        if ui.button("📈 Add Distribution Plot").clicked() && !self.columns.numeric.is_empty() {
+                            self.add_view(ViewConfig::Distribution {
+                                title: "Distribution".to_string(),
+                                column: self.columns.numeric[0].name.clone(),
+                            });
+                        }
+                        
+                        if ui.button("⏰ Add Time Analysis").clicked() && !self.columns.temporal.is_empty() {
+                            self.add_view(ViewConfig::TimeAnalysis {
+                                title: "Time Analysis".to_string(),
+                                time_column: self.columns.temporal[0].name.clone(),
+                                value_columns: vec![],
+                            });
+                        }
+                        
+                        if ui.button("🌍 Add Geographic Plot").clicked() {
+                            self.add_view(ViewConfig::GeoPlot {
+                                title: "Geographic Plot".to_string(),
+                                lat_column: String::new(),
+                                lon_column: String::new(),
+                                value_column: None,
+                            });
+                        }
+                        
+                        ui.separator();
+                        ui.label(egui::RichText::new("Financial & Time Series").strong());
+                        
+                        if ui.button("🕯️ Add Candlestick Chart").clicked() {
+                            self.add_view(ViewConfig::CandlestickChart {
+                                title: "Candlestick Chart".to_string(),
+                                time_column: self.columns.temporal.first().map(|c| c.name.clone()).unwrap_or_default(),
+                                open_column: self.columns.numeric.get(0).map(|c| c.name.clone()).unwrap_or_default(),
+                                high_column: self.columns.numeric.get(1).map(|c| c.name.clone()).unwrap_or_default(),
+                                low_column: self.columns.numeric.get(2).map(|c| c.name.clone()).unwrap_or_default(),
+                                close_column: self.columns.numeric.get(3).map(|c| c.name.clone()).unwrap_or_default(),
+                            });
+                        }
+                        
+                        if ui.button("🌊 Add Stream Graph").clicked() && !self.columns.temporal.is_empty() && !self.columns.numeric.is_empty() {
+                            self.add_view(ViewConfig::StreamGraph {
+                                title: "Stream Graph".to_string(),
+                                time_column: self.columns.temporal[0].name.clone(),
+                                value_column: self.columns.numeric[0].name.clone(),
+                                category_column: self.columns.categorical.first().map(|c| c.name.clone()),
+                            });
+                        }
+                    });
                 });
             });
         });
@@ -716,48 +1204,155 @@ impl ViewBuilderDialog {
     
     /// Show draggable column
     fn show_draggable_column(&mut self, ui: &mut Ui, col: &ColumnInfo) {
+        let id = ui.make_persistent_id(&col.name);
         let response = ui.horizontal(|ui| {
             ui.label(col.icon);
             ui.label(&col.name);
+            ui.label(egui::RichText::new(&col.data_type).small().weak());
         }).response;
+        
+        // Make it draggable
+        let response = ui.interact(response.rect, id, egui::Sense::drag());
         
         if response.hovered() {
             ui.ctx().set_cursor_icon(CursorIcon::Grab);
         }
         
-        // TODO: Implement drag and drop
+        // Add hover text separately to avoid move issue
+        let response = response.on_hover_text(format!("Type: {}\nDrag to a cell to add", col.data_type));
+        
+        if response.drag_started() {
+            self.drag_state = Some(DragState {
+                source_id: col.name.clone(),
+                offset: Vec2::ZERO,
+                dragging_column: Some(col.clone()),
+            });
+            ui.ctx().set_cursor_icon(CursorIcon::Grabbing);
+        }
+        
+        if response.dragged() && self.drag_state.is_some() {
+            ui.ctx().set_cursor_icon(CursorIcon::Grabbing);
+            
+            // Show drag preview
+            if let Some(pointer_pos) = ui.ctx().pointer_interact_pos() {
+                let layer_id = egui::LayerId::new(egui::Order::Tooltip, id);
+                let painter = ui.ctx().layer_painter(layer_id);
+                
+                let text = format!("{} {}", col.icon, col.name);
+                let galley = painter.layout_no_wrap(
+                    text,
+                    egui::FontId::default(),
+                    Color32::from_white_alpha(200)
+                );
+                
+                let rect = egui::Rect::from_min_size(
+                    pointer_pos - Vec2::new(galley.size().x / 2.0, galley.size().y / 2.0),
+                    galley.size()
+                );
+                
+                painter.rect_filled(
+                    rect.expand(4.0),
+                    Rounding::same(4.0),
+                    Color32::from_black_alpha(180)
+                );
+                
+                painter.galley(rect.min, galley);
+            }
+        }
+        
+        if response.drag_released() {
+            self.drag_state = None;
+        }
     }
     
     /// Draw a layout cell
-    fn draw_layout_cell(&self, _ui: &Ui, painter: &egui::Painter, rect: Rect, cell: &LayoutCell) {
+    fn draw_layout_cell(&self, _ui: &Ui, painter: &egui::Painter, rect: Rect, cell: &LayoutCell, is_selected: bool) {
         // Cell background
+        let bg_color = if is_selected {
+            Color32::from_gray(65)
+        } else {
+            Color32::from_gray(50)
+        };
+        
         painter.rect_filled(
             rect.shrink(2.0),
             Rounding::same(4.0),
-            Color32::from_gray(50)
+            bg_color
         );
         
         // Cell border
+        let border_color = if is_selected {
+            Color32::from_rgb(100, 150, 250)
+        } else {
+            Color32::from_gray(100)
+        };
+        
+        let border_width = if is_selected { 2.0 } else { 1.0 };
+        
         painter.rect_stroke(
             rect.shrink(2.0),
             Rounding::same(4.0),
-            Stroke::new(1.0, Color32::from_gray(100))
+            Stroke::new(border_width, border_color)
         );
         
         // Cell content
         let icon = match &cell.view_config {
             ViewConfig::TimeSeries { .. } => "📈",
+            ViewConfig::Line { .. } => "📉",
             ViewConfig::Scatter { .. } => "🎯",
             ViewConfig::Table { .. } => "📊",
             ViewConfig::BarChart { .. } => "📊",
+            ViewConfig::Histogram { .. } => "📊",
+            ViewConfig::BoxPlot { .. } => "📦",
+            ViewConfig::ViolinPlot { .. } => "🎻",
+            ViewConfig::Heatmap { .. } => "🔥",
+            ViewConfig::AnomalyDetection { .. } => "🚨",
+            ViewConfig::CorrelationMatrix { .. } => "🔗",
+            ViewConfig::Scatter3D { .. } => "🌐",
+            ViewConfig::Surface3D { .. } => "🏔️",
+            ViewConfig::ParallelCoordinates { .. } => "🌟",
+            ViewConfig::RadarChart { .. } => "🕸️",
+            ViewConfig::Contour { .. } => "🗺️",
+            ViewConfig::Sankey { .. } => "🌊",
+            ViewConfig::Treemap { .. } => "🌳",
+            ViewConfig::Sunburst { .. } => "☀️",
+            ViewConfig::NetworkGraph { .. } => "🔗",
+            ViewConfig::Distribution { .. } => "📈",
+            ViewConfig::TimeAnalysis { .. } => "⏰",
+            ViewConfig::GeoPlot { .. } => "🌍",
+            ViewConfig::SummaryStats { .. } => "📊",
+            ViewConfig::StreamGraph { .. } => "🌊",
+            ViewConfig::CandlestickChart { .. } => "🕯️",
             ViewConfig::Empty => "➕",
         };
         
         let title = match &cell.view_config {
             ViewConfig::TimeSeries { title, .. } => title,
+            ViewConfig::Line { title, .. } => title,
             ViewConfig::Scatter { title, .. } => title,
             ViewConfig::Table { title, .. } => title,
             ViewConfig::BarChart { title, .. } => title,
+            ViewConfig::Histogram { title, .. } => title,
+            ViewConfig::BoxPlot { title, .. } => title,
+            ViewConfig::ViolinPlot { title, .. } => title,
+            ViewConfig::Heatmap { title, .. } => title,
+            ViewConfig::AnomalyDetection { title, .. } => title,
+            ViewConfig::CorrelationMatrix { title, .. } => title,
+            ViewConfig::Scatter3D { title, .. } => title,
+            ViewConfig::Surface3D { title, .. } => title,
+            ViewConfig::ParallelCoordinates { title, .. } => title,
+            ViewConfig::RadarChart { title, .. } => title,
+            ViewConfig::Contour { title, .. } => title,
+            ViewConfig::Sankey { title, .. } => title,
+            ViewConfig::Treemap { title, .. } => title,
+            ViewConfig::Sunburst { title, .. } => title,
+            ViewConfig::NetworkGraph { title, .. } => title,
+            ViewConfig::Distribution { title, .. } => title,
+            ViewConfig::TimeAnalysis { title, .. } => title,
+            ViewConfig::GeoPlot { title, .. } => title,
+            ViewConfig::SummaryStats { title, .. } => title,
+            ViewConfig::StreamGraph { title, .. } => title,
+            ViewConfig::CandlestickChart { title, .. } => title,
             ViewConfig::Empty => "Empty",
         };
         
@@ -864,6 +1459,14 @@ impl ViewBuilderDialog {
                     view.config.show_grid = true;
                     views.push(Box::new(view));
                 }
+                ViewConfig::Line { title, x_column, y_columns } => {
+                    // LinePlotView doesn't exist yet - using TimeSeriesView as fallback
+                    let id = uuid::Uuid::new_v4();
+                    let mut view = TimeSeriesView::new(id, title.clone());
+                    view.config.x_column = x_column.clone();
+                    view.config.y_columns = y_columns.clone();
+                    views.push(Box::new(view));
+                }
                 ViewConfig::Scatter { title, x_column, y_column, color_column } => {
                     let id = uuid::Uuid::new_v4();
                     let mut view = ScatterPlotView::new(id, title.clone());
@@ -883,6 +1486,151 @@ impl ViewBuilderDialog {
                     view.config.category_column = category_column.clone();
                     view.config.value_column = value_column.clone();
                     views.push(Box::new(view));
+                }
+                ViewConfig::Histogram { title, column } => {
+                    // HistogramView doesn't exist yet - skip for now
+                    // let id = uuid::Uuid::new_v4();
+                    // let mut view = HistogramView::new(id, title.clone());
+                    // view.config.column = column.clone();
+                    // views.push(Box::new(view));
+                }
+                ViewConfig::BoxPlot { title, value_column, category_column } => {
+                    // BoxPlotView doesn't exist yet - skip for now
+                    // let id = uuid::Uuid::new_v4();
+                    // let mut view = BoxPlotView::new(id, title.clone());
+                    // view.config.value_column = value_column.clone();
+                    // view.config.category_column = category_column.clone();
+                    // views.push(Box::new(view));
+                }
+                ViewConfig::ViolinPlot { title, value_column, category_column } => {
+                    // ViolinPlotView doesn't exist yet - skip for now
+                    // let id = uuid::Uuid::new_v4();
+                    // let mut view = ViolinPlotView::new(id, title.clone());
+                    // view.config.value_column = value_column.clone();
+                    // view.config.category_column = category_column.clone();
+                    // views.push(Box::new(view));
+                }
+                ViewConfig::Heatmap { title, x_column, y_column, value_column } => {
+                    // HeatmapView doesn't exist yet - skip for now
+                    // let id = uuid::Uuid::new_v4();
+                    // let mut view = HeatmapView::new(id, title.clone());
+                    // view.config.x_column = x_column.clone();
+                    // view.config.y_column = y_column.clone();
+                    // view.config.value_column = value_column.clone();
+                    // views.push(Box::new(view));
+                }
+                ViewConfig::AnomalyDetection { title, column } => {
+                    // AnomalyDetectionView doesn't exist yet - skip for now
+                    // let id = uuid::Uuid::new_v4();
+                    // let mut view = AnomalyDetectionView::new(id, title.clone());
+                    // view.config.column = column.clone();
+                    // views.push(Box::new(view));
+                }
+                ViewConfig::CorrelationMatrix { title, columns } => {
+                    // CorrelationMatrixView doesn't exist yet - skip for now
+                    // let id = uuid::Uuid::new_v4();
+                    // let mut view = CorrelationMatrixView::new(id, title.clone());
+                    // view.config.columns = columns.clone();
+                    // views.push(Box::new(view));
+                }
+                ViewConfig::Scatter3D { title, x_column, y_column, z_column } => {
+                    // Scatter3DView doesn't exist yet - skip for now
+                    // let id = uuid::Uuid::new_v4();
+                    // let view = Scatter3DView::new(id, title.clone());
+                    // views.push(Box::new(view));
+                }
+                ViewConfig::Surface3D { title, x_column, y_column, z_column } => {
+                    // Surface3DView doesn't exist yet - skip for now
+                    // let id = uuid::Uuid::new_v4();
+                    // let view = Surface3DView::new(id, title.clone());
+                    // views.push(Box::new(view));
+                }
+                ViewConfig::ParallelCoordinates { title, columns } => {
+                    // ParallelCoordinatesPlot doesn't exist yet - skip for now
+                    // let id = uuid::Uuid::new_v4();
+                    // let view = ParallelCoordinatesPlot::new(id, title.clone());
+                    // views.push(Box::new(view));
+                }
+                ViewConfig::RadarChart { title, value_columns, group_column } => {
+                    // RadarChart doesn't exist yet - skip for now
+                    // let id = uuid::Uuid::new_v4();
+                    // let mut view = RadarChart::new(id, title.clone());
+                    // view.config.value_columns = value_columns.clone();
+                    // view.config.group_column = group_column.clone();
+                    // views.push(Box::new(view));
+                }
+                ViewConfig::Contour { title, x_column, y_column, z_column } => {
+                    // ContourPlotView doesn't exist yet - skip for now
+                    // let id = uuid::Uuid::new_v4();
+                    // let view = ContourPlotView::new(id, title.clone());
+                    // views.push(Box::new(view));
+                }
+                ViewConfig::Sankey { title, source_column, target_column, value_column } => {
+                    // SankeyDiagramView doesn't exist yet - skip for now
+                    // let id = uuid::Uuid::new_v4();
+                    // let view = SankeyDiagramView::new(id, title.clone());
+                    // views.push(Box::new(view));
+                }
+                ViewConfig::Treemap { title, category_column, value_column } => {
+                    // TreemapView doesn't exist yet - skip for now
+                    // let id = uuid::Uuid::new_v4();
+                    // let view = TreemapView::new(id, title.clone());
+                    // views.push(Box::new(view));
+                }
+                ViewConfig::Sunburst { title, hierarchy_columns, value_column } => {
+                    // SunburstView doesn't exist yet - skip for now
+                    // let id = uuid::Uuid::new_v4();
+                    // let view = SunburstView::new(id, title.clone());
+                    // views.push(Box::new(view));
+                }
+                ViewConfig::NetworkGraph { title, source_column, target_column } => {
+                    // NetworkGraphView doesn't exist yet - skip for now
+                    // let id = uuid::Uuid::new_v4();
+                    // let view = NetworkGraphView::new(id, title.clone());
+                    // views.push(Box::new(view));
+                }
+                ViewConfig::Distribution { title, column } => {
+                    // DistributionPlotView doesn't exist yet - skip for now
+                    // let id = uuid::Uuid::new_v4();
+                    // let view = DistributionPlotView::new(id, title.clone());
+                    // views.push(Box::new(view));
+                }
+                ViewConfig::TimeAnalysis { title, time_column, value_columns } => {
+                    // TimeAnalysisView doesn't exist yet - skip for now
+                    // let id = uuid::Uuid::new_v4();
+                    // let view = TimeAnalysisView::new(id, title.clone());
+                    // views.push(Box::new(view));
+                }
+                ViewConfig::GeoPlot { title, lat_column, lon_column, value_column } => {
+                    // GeoPlotView doesn't exist yet - skip for now
+                    // let id = uuid::Uuid::new_v4();
+                    // let view = GeoPlotView::new(id, title.clone());
+                    // views.push(Box::new(view));
+                }
+                ViewConfig::SummaryStats { title } => {
+                    let id = uuid::Uuid::new_v4();
+                    let view = SummaryStatsView::new(id, title.clone());
+                    views.push(Box::new(view));
+                }
+                ViewConfig::StreamGraph { title, time_column, value_column, category_column } => {
+                    // StreamGraph doesn't exist yet - skip for now
+                    // let id = uuid::Uuid::new_v4();
+                    // let mut view = StreamGraph::new(id, title.clone());
+                    // view.config.time_column = Some(time_column.clone());
+                    // view.config.value_column = Some(value_column.clone());
+                    // view.config.category_column = category_column.clone();
+                    // views.push(Box::new(view));
+                }
+                ViewConfig::CandlestickChart { title, time_column, open_column, high_column, low_column, close_column } => {
+                    // CandlestickChart doesn't exist yet - skip for now
+                    // let id = uuid::Uuid::new_v4();
+                    // let mut view = CandlestickChart::new(id, title.clone());
+                    // view.config.time_column = Some(time_column.clone());
+                    // view.config.open_column = Some(open_column.clone());
+                    // view.config.high_column = Some(high_column.clone());
+                    // view.config.low_column = Some(low_column.clone());
+                    // view.config.close_column = Some(close_column.clone());
+                    // views.push(Box::new(view));
                 }
                 ViewConfig::Empty => {
                     // Skip empty cells

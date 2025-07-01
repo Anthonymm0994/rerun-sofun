@@ -1,258 +1,303 @@
-//! Statistics view implementation
-// TODO: Update to use SpaceView trait
+//! Summary statistics view implementation
 
-/*
-use egui::{Ui, Grid};
-use arrow::record_batch::RecordBatch;
-use arrow::array::{Float64Array, Int64Array, ArrayRef};
-use arrow::compute::{min, max, sum};
-use serde::{Serialize, Deserialize};
-use dv_core::navigation::NavigationContext;
-use crate::{View, ViewConfig};
+use egui::{Ui, ScrollArea};
 
-/// Configuration for statistics views
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StatsConfig {
-    pub show_mean: bool,
-    pub show_median: bool,
-    pub show_std_dev: bool,
-    pub show_min_max: bool,
-    pub show_count: bool,
-    pub show_null_count: bool,
-    pub show_unique_count: bool,
+use arrow::array::Array;
+use arrow::datatypes::DataType;
+use serde_json::{json, Value};
+
+use crate::{SpaceView, SpaceViewId, SelectionState, ViewerContext};
+use dv_core::navigation::NavigationPosition;
+
+/// Summary statistics view
+pub struct SummaryStatsView {
+    id: SpaceViewId,
+    title: String,
+    
+    // Cached statistics
+    cached_stats: Option<Vec<ColumnStats>>,
+    last_navigation_pos: Option<NavigationPosition>,
 }
 
-impl Default for StatsConfig {
-    fn default() -> Self {
-        Self {
-            show_mean: true,
-            show_median: true,
-            show_std_dev: true,
-            show_min_max: true,
-            show_count: true,
-            show_null_count: true,
-            show_unique_count: false,
-        }
-    }
-}
-
-/// Statistics view that displays summary statistics for columns
-pub struct StatsView {
-    id: String,
-    name: String,
-    config: StatsConfig,
-    stats_cache: Vec<ColumnStats>,
-}
-
-#[derive(Clone, Debug)]
+#[derive(Debug, Clone)]
 struct ColumnStats {
     name: String,
+    data_type: DataType,
     count: usize,
     null_count: usize,
-    unique_count: Option<usize>,
-    mean: Option<f64>,
-    median: Option<f64>,
-    std_dev: Option<f64>,
-    min: Option<f64>,
-    max: Option<f64>,
+    numeric_stats: Option<NumericStats>,
+    string_stats: Option<StringStats>,
 }
 
-impl StatsView {
-    /// Create a new statistics view
-    pub fn new(id: String, name: String) -> Self {
+#[derive(Debug, Clone)]
+struct NumericStats {
+    min: f64,
+    max: f64,
+    mean: f64,
+    std_dev: f64,
+    median: f64,
+    q1: f64,
+    q3: f64,
+}
+
+#[derive(Debug, Clone)]
+struct StringStats {
+    unique_count: usize,
+    min_length: usize,
+    max_length: usize,
+    avg_length: f32,
+}
+
+impl SummaryStatsView {
+    /// Create a new summary statistics view
+    pub fn new(id: SpaceViewId, title: String) -> Self {
         Self {
             id,
-            name,
-            config: StatsConfig::default(),
-            stats_cache: Vec::new(),
+            title,
+            cached_stats: None,
+            last_navigation_pos: None,
         }
     }
     
-    /// Calculate statistics for a numeric array
-    fn calculate_numeric_stats(array: &ArrayRef) -> (Option<f64>, Option<f64>, Option<f64>, Option<f64>, Option<f64>) {
-        if let Some(float_array) = array.as_any().downcast_ref::<Float64Array>() {
-            let values: Vec<f64> = float_array.iter().filter_map(|v| v).collect();
-            
-            if values.is_empty() {
-                return (None, None, None, None, None);
-            }
-            
-            let count = values.len() as f64;
-            let mean = values.iter().sum::<f64>() / count;
-            
-            let variance = values.iter()
-                .map(|v| (v - mean).powi(2))
-                .sum::<f64>() / count;
-            let std_dev = variance.sqrt();
-            
-            let mut sorted = values.clone();
-            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
-            
-            let median = if sorted.len() % 2 == 0 {
-                (sorted[sorted.len() / 2 - 1] + sorted[sorted.len() / 2]) / 2.0
-            } else {
-                sorted[sorted.len() / 2]
+    /// Calculate statistics for the current data
+    fn calculate_stats(&mut self, ctx: &ViewerContext) -> Option<Vec<ColumnStats>> {
+        let data_source = ctx.data_source.read();
+        let data_source = data_source.as_ref()?;
+        
+        // Get current navigation position
+        let _nav_pos = ctx.navigation.get_context().position.clone();
+        
+        // Query all data - for stats we want the full dataset
+        let batch = ctx.runtime_handle.block_on(
+            data_source.query_at(&NavigationPosition::Sequential(0))
+        ).ok()?;
+        
+        let mut stats = Vec::new();
+        
+        for (idx, field) in batch.schema().fields().iter().enumerate() {
+            let column = batch.column(idx);
+            let mut col_stats = ColumnStats {
+                name: field.name().clone(),
+                data_type: field.data_type().clone(),
+                count: column.len(),
+                null_count: column.null_count(),
+                numeric_stats: None,
+                string_stats: None,
             };
             
-            let min_val = sorted.first().cloned();
-            let max_val = sorted.last().cloned();
-            
-            (Some(mean), Some(median), Some(std_dev), min_val, max_val)
-        } else if let Some(int_array) = array.as_any().downcast_ref::<Int64Array>() {
-            let values: Vec<f64> = int_array.iter().filter_map(|v| v.map(|i| i as f64)).collect();
-            
-            if values.is_empty() {
-                return (None, None, None, None, None);
+            // Calculate type-specific statistics
+            match field.data_type() {
+                DataType::Float64 | DataType::Float32 | 
+                DataType::Int64 | DataType::Int32 | 
+                DataType::Int16 | DataType::Int8 |
+                DataType::UInt64 | DataType::UInt32 | 
+                DataType::UInt16 | DataType::UInt8 => {
+                    col_stats.numeric_stats = self.calculate_numeric_stats(column);
+                }
+                DataType::Utf8 | DataType::LargeUtf8 => {
+                    col_stats.string_stats = self.calculate_string_stats(column);
+                }
+                _ => {}
             }
             
-            let count = values.len() as f64;
-            let mean = values.iter().sum::<f64>() / count;
-            
-            let variance = values.iter()
-                .map(|v| (v - mean).powi(2))
-                .sum::<f64>() / count;
-            let std_dev = variance.sqrt();
-            
-            let mut sorted = values.clone();
-            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
-            
-            let median = if sorted.len() % 2 == 0 {
-                (sorted[sorted.len() / 2 - 1] + sorted[sorted.len() / 2]) / 2.0
-            } else {
-                sorted[sorted.len() / 2]
-            };
-            
-            let min_val = sorted.first().cloned();
-            let max_val = sorted.last().cloned();
-            
-            (Some(mean), Some(median), Some(std_dev), min_val, max_val)
-        } else {
-            (None, None, None, None, None)
+            stats.push(col_stats);
         }
+        
+        Some(stats)
+    }
+    
+    fn calculate_numeric_stats(&self, column: &dyn Array) -> Option<NumericStats> {
+        // Convert to f64 array for statistics
+        let values: Vec<f64> = match column.data_type() {
+            DataType::Float64 => {
+                let array = column.as_any().downcast_ref::<arrow::array::Float64Array>()?;
+                (0..array.len())
+                    .filter_map(|i| if array.is_valid(i) { Some(array.value(i)) } else { None })
+                    .collect()
+            }
+            DataType::Float32 => {
+                let array = column.as_any().downcast_ref::<arrow::array::Float32Array>()?;
+                (0..array.len())
+                    .filter_map(|i| if array.is_valid(i) { Some(array.value(i) as f64) } else { None })
+                    .collect()
+            }
+            DataType::Int64 => {
+                let array = column.as_any().downcast_ref::<arrow::array::Int64Array>()?;
+                (0..array.len())
+                    .filter_map(|i| if array.is_valid(i) { Some(array.value(i) as f64) } else { None })
+                    .collect()
+            }
+            _ => return None,
+        };
+        
+        if values.is_empty() {
+            return None;
+        }
+        
+        let mut sorted = values.clone();
+        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        
+        let n = values.len() as f64;
+        let sum: f64 = values.iter().sum();
+        let mean = sum / n;
+        
+        let variance: f64 = values.iter()
+            .map(|v| (v - mean).powi(2))
+            .sum::<f64>() / n;
+        let std_dev = variance.sqrt();
+        
+        let median = sorted[sorted.len() / 2];
+        let q1 = sorted[sorted.len() / 4];
+        let q3 = sorted[3 * sorted.len() / 4];
+        
+        Some(NumericStats {
+            min: sorted[0],
+            max: sorted[sorted.len() - 1],
+            mean,
+            std_dev,
+            median,
+            q1,
+            q3,
+        })
+    }
+    
+    fn calculate_string_stats(&self, column: &dyn Array) -> Option<StringStats> {
+        let array = column.as_any().downcast_ref::<arrow::array::StringArray>()?;
+        
+        let mut unique_values = std::collections::HashSet::new();
+        let mut total_length = 0;
+        let mut min_length = usize::MAX;
+        let mut max_length = 0;
+        let mut count = 0;
+        
+        for i in 0..array.len() {
+            if array.is_valid(i) {
+                let value = array.value(i);
+                unique_values.insert(value);
+                let len = value.len();
+                total_length += len;
+                min_length = min_length.min(len);
+                max_length = max_length.max(len);
+                count += 1;
+            }
+        }
+        
+        if count == 0 {
+            return None;
+        }
+        
+        Some(StringStats {
+            unique_count: unique_values.len(),
+            min_length,
+            max_length,
+            avg_length: total_length as f32 / count as f32,
+        })
     }
 }
 
-impl View for StatsView {
-    fn id(&self) -> &str {
+impl SpaceView for SummaryStatsView {
+    fn id(&self) -> &SpaceViewId {
         &self.id
     }
     
-    fn name(&self) -> &str {
-        &self.name
+    fn display_name(&self) -> &str {
+        &self.title
     }
     
-    fn set_name(&mut self, name: String) {
-        self.name = name;
+    fn view_type(&self) -> &str {
+        "SummaryStatsView"
     }
     
-    fn update(&mut self, data: &RecordBatch, _context: &NavigationContext) {
-        self.stats_cache.clear();
-        
-        for (idx, field) in data.schema().fields().iter().enumerate() {
-            let column = data.column(idx);
-            let null_count = column.null_count();
-            
-            let (mean, median, std_dev, min_val, max_val) = Self::calculate_numeric_stats(column);
-            
-            self.stats_cache.push(ColumnStats {
-                name: field.name().clone(),
-                count: column.len(),
-                null_count,
-                unique_count: None, // TODO: Calculate unique count
-                mean,
-                median,
-                std_dev,
-                min: min_val,
-                max: max_val,
-            });
-        }
-    }
-    
-    fn render(&mut self, ui: &mut Ui) {
-        if self.stats_cache.is_empty() {
-            ui.centered_and_justified(|ui| {
-                ui.label("No statistics to display");
-            });
-            return;
+    fn ui(&mut self, ctx: &ViewerContext, ui: &mut Ui) {
+        // Update stats if navigation changed
+        let nav_pos = ctx.navigation.get_context().position.clone();
+        if self.last_navigation_pos.as_ref() != Some(&nav_pos) {
+            self.cached_stats = self.calculate_stats(ctx);
+            self.last_navigation_pos = Some(nav_pos);
         }
         
-        egui::ScrollArea::vertical()
-            .id_source(&self.id)
-            .show(ui, |ui| {
-                for stats in &self.stats_cache {
-                    ui.group(|ui| {
-                        ui.vertical(|ui| {
-                            ui.heading(&stats.name);
-                            
-                            Grid::new(format!("{}_stats", stats.name))
-                                .num_columns(2)
-                                .spacing([40.0, 4.0])
-                                .striped(true)
-                                .show(ui, |ui| {
-                                    if self.config.show_count {
-                                        ui.label("Count:");
-                                        ui.label(stats.count.to_string());
-                                        ui.end_row();
-                                    }
+        // Display statistics
+        if let Some(stats) = &self.cached_stats {
+            ScrollArea::both()
+                .id_source(format!("stats_{:?}", self.id))
+                .show(ui, |ui| {
+                    use egui_extras::{TableBuilder, Column};
+                    
+                    TableBuilder::new(ui)
+                        .striped(true)
+                        .resizable(true)
+                        .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
+                        .column(Column::initial(120.0).at_least(80.0)) // Column name
+                        .column(Column::initial(80.0).at_least(60.0))  // Type
+                        .column(Column::initial(80.0).at_least(60.0))  // Count
+                        .column(Column::initial(80.0).at_least(60.0))  // Nulls
+                        .column(Column::initial(80.0).at_least(60.0))  // Min
+                        .column(Column::initial(80.0).at_least(60.0))  // Max
+                        .column(Column::initial(80.0).at_least(60.0))  // Mean
+                        .column(Column::initial(80.0).at_least(60.0))  // Std Dev
+                        .column(Column::initial(80.0).at_least(60.0))  // Median
+                        .header(20.0, |mut header| {
+                            header.col(|ui| { ui.strong("Column"); });
+                            header.col(|ui| { ui.strong("Type"); });
+                            header.col(|ui| { ui.strong("Count"); });
+                            header.col(|ui| { ui.strong("Nulls"); });
+                            header.col(|ui| { ui.strong("Min"); });
+                            header.col(|ui| { ui.strong("Max"); });
+                            header.col(|ui| { ui.strong("Mean"); });
+                            header.col(|ui| { ui.strong("Std Dev"); });
+                            header.col(|ui| { ui.strong("Median"); });
+                        })
+                        .body(|mut body| {
+                            for col_stats in stats {
+                                body.row(18.0, |mut row| {
+                                    row.col(|ui| { ui.label(&col_stats.name); });
+                                    row.col(|ui| { ui.label(format!("{:?}", col_stats.data_type)); });
+                                    row.col(|ui| { ui.label(col_stats.count.to_string()); });
+                                    row.col(|ui| { ui.label(col_stats.null_count.to_string()); });
                                     
-                                    if self.config.show_null_count {
-                                        ui.label("Null Count:");
-                                        ui.label(stats.null_count.to_string());
-                                        ui.end_row();
-                                    }
-                                    
-                                    if self.config.show_mean {
-                                        ui.label("Mean:");
-                                        ui.label(stats.mean.map_or("N/A".to_string(), |v| format!("{:.2}", v)));
-                                        ui.end_row();
-                                    }
-                                    
-                                    if self.config.show_median {
-                                        ui.label("Median:");
-                                        ui.label(stats.median.map_or("N/A".to_string(), |v| format!("{:.2}", v)));
-                                        ui.end_row();
-                                    }
-                                    
-                                    if self.config.show_std_dev {
-                                        ui.label("Std Dev:");
-                                        ui.label(stats.std_dev.map_or("N/A".to_string(), |v| format!("{:.2}", v)));
-                                        ui.end_row();
-                                    }
-                                    
-                                    if self.config.show_min_max {
-                                        ui.label("Min:");
-                                        ui.label(stats.min.map_or("N/A".to_string(), |v| format!("{:.2}", v)));
-                                        ui.end_row();
-                                        
-                                        ui.label("Max:");
-                                        ui.label(stats.max.map_or("N/A".to_string(), |v| format!("{:.2}", v)));
-                                        ui.end_row();
+                                    if let Some(numeric) = &col_stats.numeric_stats {
+                                        row.col(|ui| { ui.label(format!("{:.2}", numeric.min)); });
+                                        row.col(|ui| { ui.label(format!("{:.2}", numeric.max)); });
+                                        row.col(|ui| { ui.label(format!("{:.2}", numeric.mean)); });
+                                        row.col(|ui| { ui.label(format!("{:.2}", numeric.std_dev)); });
+                                        row.col(|ui| { ui.label(format!("{:.2}", numeric.median)); });
+                                    } else if let Some(string) = &col_stats.string_stats {
+                                        row.col(|ui| { ui.label(format!("{}", string.min_length)); });
+                                        row.col(|ui| { ui.label(format!("{}", string.max_length)); });
+                                        row.col(|ui| { ui.label(format!("{:.1}", string.avg_length)); });
+                                        row.col(|ui| { ui.label("-"); });
+                                        row.col(|ui| { ui.label(format!("{} unique", string.unique_count)); });
+                                    } else {
+                                        row.col(|ui| { ui.label("-"); });
+                                        row.col(|ui| { ui.label("-"); });
+                                        row.col(|ui| { ui.label("-"); });
+                                        row.col(|ui| { ui.label("-"); });
+                                        row.col(|ui| { ui.label("-"); });
                                     }
                                 });
+                            }
                         });
-                    });
-                    
-                    ui.add_space(8.0);
-                }
+                });
+        } else {
+            ui.centered_and_justified(|ui| {
+                ui.label("No data to display");
             });
-    }
-    
-    fn config(&self) -> ViewConfig {
-        ViewConfig::Stats(self.config.clone())
-    }
-    
-    fn set_config(&mut self, config: ViewConfig) {
-        if let ViewConfig::Stats(stats_config) = config {
-            self.config = stats_config;
         }
     }
     
-    fn on_zoom(&mut self, _factor: f32, _center: Option<egui::Pos2>) {
-        // Stats don't zoom
+    fn save_config(&self) -> Value {
+        json!({})
     }
     
-    fn on_selection(&mut self, _start: egui::Pos2, _end: egui::Pos2) {
-        // Stats don't have selection
+    fn load_config(&mut self, _config: Value) {
+        // No configuration to load
     }
-}
-*/ 
+    
+    fn on_selection_change(&mut self, _ctx: &ViewerContext, _selection: &SelectionState) {
+        // No selection handling needed
+    }
+    
+    fn on_frame_update(&mut self, _ctx: &ViewerContext, _dt: f32) {
+        // Nothing to update per frame
+    }
+} 

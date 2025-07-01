@@ -17,9 +17,9 @@ pub struct CsvSource {
     /// Path to the CSV file
     path: PathBuf,
     /// Schema of the CSV file
-    schema: Arc<Schema>,
+    pub schema: Arc<Schema>,
     /// Row count
-    total_rows: usize,
+    pub row_count: usize,
     /// Navigation spec
     navigation_spec: NavigationSpec,
     /// Cache for loaded data (reserved for future use)
@@ -48,7 +48,7 @@ impl CsvSource {
         Ok(Self {
             path,
             schema: Arc::new(schema),
-            total_rows: row_count,
+            row_count: row_count,
             navigation_spec,
             _cache: Arc::new(RwLock::new(DataCache {
                 _chunks: AHashMap::new(),
@@ -311,7 +311,7 @@ impl dv_core::data::DataSource for CsvSource {
         let mut spec = self.navigation_spec.clone();
         
         // Update with actual row count
-        spec.total_rows = self.total_rows;
+        spec.total_rows = self.row_count;
         
         Ok(spec)
     }
@@ -332,7 +332,7 @@ impl dv_core::data::DataSource for CsvSource {
         // Query a window around the position
         let window_size = 1000;
         let start = row_idx.saturating_sub(window_size / 2);
-        let end = (row_idx + window_size / 2).min(self.total_rows);
+        let end = (row_idx + window_size / 2).min(self.row_count);
         
         self.read_chunk(start, end - start).await.map_err(|e| e.into())
     }
@@ -347,7 +347,7 @@ impl dv_core::data::DataSource for CsvSource {
     }
     
     async fn row_count(&self) -> anyhow::Result<usize> {
-        Ok(self.total_rows)
+        Ok(self.row_count)
     }
     
     fn source_name(&self) -> &str {

@@ -1,129 +1,187 @@
-# Data Visualization Platform
+# F.R.O.G. Data Visualizer 🐸
 
-A high-performance, Rust-native data visualization platform for Windows that transforms CSV and SQLite files into beautiful, interactive dashboards. Inspired by [Rerun](https://rerun.io)'s excellent architecture and user experience, but designed specifically for tabular business data.
+A **F**ast, **R**esponsive, **O**rganized **G**raphics data visualization platform built with Rust and egui.
 
-## Features
+![Rust](https://img.shields.io/badge/rust-%23000000.svg?style=for-the-badge&logo=rust&logoColor=white)
+![Status](https://img.shields.io/badge/status-beta-yellow?style=for-the-badge)
+![License](https://img.shields.io/badge/license-MIT-blue?style=for-the-badge)
 
-- 🚀 **High Performance**: Handle millions of rows at 60 FPS
-- 📊 **Smart Templates**: Automatically selects the best visualization based on your data
-- 🎯 **Universal Navigation**: Time-based, sequential, or categorical data navigation
-- 🎨 **Beautiful UI**: Dark theme inspired by Rerun's design
-- 📁 **Simple Input**: Just drag and drop CSV or SQLite files
-- 🔄 **Synchronized Views**: Multiple views stay in sync as you navigate
-- ⚡ **GPU Acceleration**: WGPU-based rendering for maximum performance
+## ✨ Features
 
-## Architecture
+### 🎯 Core Capabilities
+- **Multiple Data Sources**: CSV files, SQLite databases, and more coming soon
+- **Interactive Visualizations**: Time series, scatter plots, bar charts, tables, and statistical summaries
+- **Smart Navigation**: Sequential, temporal, and categorical data exploration
+- **Real-time Updates**: See changes across all views as you navigate
+- **High Performance**: Built with Rust for speed and efficiency
 
-The platform is built as a modular workspace with clear separation of concerns:
+### 🎨 Visualization Types
+- 📈 **Time Series Plots**: Track metrics over time with multiple series
+- 🎯 **Scatter Plots**: Explore correlations with optional color coding
+- 📊 **Bar Charts**: Compare categorical data
+- 📋 **Data Tables**: Inspect raw data with sorting and filtering
+- 📊 **Summary Statistics**: Quick statistical insights
 
-```
-datavis/
-├── crates/
-│   ├── dv-core/        # Core abstractions and state management
-│   ├── dv-data/        # Data sources (CSV, SQLite)
-│   ├── dv-render/      # Rendering abstraction (GPU/CPU)
-│   ├── dv-views/       # View implementations (plots, tables)
-│   ├── dv-templates/   # Dashboard templates
-│   ├── dv-ui/          # UI components (egui-based)
-│   └── dv-app/         # Main application
-```
+### 🚀 Key Features
+- **Dashboard Builder**: Visual designer with flexible grid layouts
+  - Pre-built templates for common use cases
+  - Mixed layouts (e.g., 2 small views + 1 wide view)
+  - Drag-and-drop column assignment
+  - Real-time preview
+- **Synchronized Views**: All visualizations stay in sync as you navigate
+- **Interactive Legends**: Show/hide series with a click
+- **Cross-View Highlighting**: Hover on one view, see related data highlighted everywhere
+- **Keyboard Navigation**: Full keyboard support for power users
+- **Dark Theme**: Easy on the eyes for extended analysis sessions
 
-## Building
+## 🚀 Quick Start
 
 ### Prerequisites
+- [Rust](https://rustup.rs/) (1.70 or later)
+- Windows, macOS, or Linux
 
-- Rust 1.75 or later
-- Windows 10/11
-- Visual Studio 2019 or later (for Windows)
-
-### Build Instructions
+### Installation
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/datavis
-cd datavis
+git clone https://github.com/yourusername/rerun-sofun.git
+cd rerun-sofun
 
-# Build in debug mode
-cargo build
-
-# Build in release mode (recommended for performance)
-cargo build --release
-
-# Run the application
+# Build and run
 cargo run --release
 ```
 
-## Usage
+### First Run
 
-1. **Launch the application**
-   ```bash
-   cargo run --release
-   ```
+1. **Load Data**: Press `Ctrl+O` or click "Open Data Source"
+2. **Choose Source**: Select a CSV file or SQLite database
+3. **Build Dashboard**: Press `B` to open the Dashboard Builder
+4. **Select Template**: Choose from pre-built layouts or create custom
+5. **Start Exploring**: Use navigation controls or keyboard shortcuts
 
-2. **Load your data**
-   - Drag and drop a CSV or SQLite file onto the window
-   - Or use File → Open from the menu
+## ⌨️ Keyboard Shortcuts
 
-3. **Navigate your data**
-   - Use the navigation bar at the bottom to move through your data
-   - Play button for automatic playback
-   - Slider for manual navigation
-   - Speed control for playback rate
+| Key | Action |
+|-----|--------|
+| `Ctrl+O` | Open data source |
+| `B` | Open Dashboard Builder |
+| `Space` | Play/Pause navigation |
+| `←/→` | Previous/Next item |
+| `H` | Go to first item |
+| `End` | Go to last item |
+| `D` | Demo mode |
+| `Tab` | Toggle side panels |
+| `Esc` | Close dialogs |
 
-4. **Customize views**
-   - Views automatically adapt to your data schema
-   - Drag panels to rearrange layout
-   - Use View menu to show/hide panels
+## 🏗️ Architecture
 
-## Key Design Patterns
+F.R.O.G. uses a modular architecture for maintainability and extensibility:
 
-### Navigation System
-Inspired by Rerun's time control, but generalized for any data type:
-- **Temporal**: Navigate through time-series data
-- **Sequential**: Navigate through rows/records
-- **Categorical**: Navigate through discrete categories
+```
+crates/
+├── dv-app/        # Main application
+├── dv-core/       # Core types and navigation
+├── dv-data/       # Data sources and caching  
+├── dv-views/      # Visualization implementations
+├── dv-ui/         # Reusable UI components
+└── dv-render/     # Rendering abstractions
+```
 
-### Template System
-Automatically detects the best dashboard layout:
-- Time series data → Line plots with time navigation
-- Metrics data → Multiple synchronized charts
-- Event logs → Table view with filtering
-- Generic data → Flexible grid layout
+See [Design Principles](docs/DESIGN_PRINCIPLES.md) for detailed architecture documentation.
 
-### Performance Optimizations
-- Lazy loading with intelligent caching
-- GPU-accelerated rendering
-- Multi-threaded data processing
-- Memory-mapped file access for large datasets
+## 📊 Supported Data Formats
 
-## Development Status
+### CSV Files
+- Automatic type detection
+- Support for large files (streaming)
+- Multiple encoding support
 
-This is a production-quality foundation with the following components implemented:
-- ✅ Core navigation engine
-- ✅ Application state management  
-- ✅ Event system and synchronization
-- ✅ CSV data source with schema detection
-- ✅ UI shell with theming
-- ✅ Navigation bar control
-- 🚧 View implementations (plots, tables)
-- 🚧 Template matching system
-- 🚧 GPU renderer
-- 🚧 SQLite support
+### SQLite Databases
+- Query any table or view
+- Automatic schema detection
+- Efficient data loading
 
-## Contributing
+### Coming Soon
+- JSON/JSONL files
+- Parquet files
+- REST API endpoints
+- Real-time data streams
 
-Contributions are welcome! Please ensure:
-- Code follows Rust best practices
-- All tests pass
-- Performance remains a priority
-- UI changes maintain the clean, professional aesthetic
+## 🎨 Dashboard Builder
 
-## License
+The visual Dashboard Builder lets you create custom layouts:
 
-MIT OR Apache-2.0
+### Templates
+- **Time Series Dashboard**: Track metrics over time
+- **Correlation Analysis**: Explore relationships
+- **Mixed Layout**: Combine different view sizes
+- **Vertical Split**: Side-by-side comparisons
+- **Custom**: Start from scratch
 
-## Acknowledgments
+### Features
+- Visual grid editor
+- Flexible cell sizes (1x1, 2x1, 1x2, etc.)
+- Drag columns to views
+- Live preview
+- Save/load layouts (coming soon)
 
-- Inspired by [Rerun](https://rerun.io)'s excellent viewer architecture
-- Built with [egui](https://github.com/emilk/egui) for immediate mode UI
-- Uses [Arrow](https://arrow.apache.org/) for efficient data handling 
+## 🔧 Configuration
+
+Configuration files are stored in:
+- Windows: `%APPDATA%/frog-viz/`
+- macOS: `~/Library/Application Support/frog-viz/`
+- Linux: `~/.config/frog-viz/`
+
+## 🤝 Contributing
+
+We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+### Development Setup
+
+```bash
+# Install development dependencies
+cargo install cargo-watch
+
+# Run in development mode with auto-reload
+cargo watch -x run
+
+# Run tests
+cargo test
+
+# Check code quality
+cargo clippy -- -D warnings
+```
+
+## 📈 Performance Tips
+
+- For large datasets (>1M rows), use SQLite instead of CSV
+- Enable release mode (`cargo run --release`) for best performance
+- Adjust viewport bounds for scatter plots with many points
+- Use sampling for initial exploration of huge datasets
+
+## 🐛 Known Issues
+
+- Windows: Release builds may fail with CRT linking errors
+  - Workaround: Use `cargo build` without `--release` flag
+- Legend colors may appear white when series names are duplicated
+- Some egui_plot features are limited by the underlying library
+
+## 📚 Resources
+
+- [Design Principles](docs/DESIGN_PRINCIPLES.md) - Architecture and design decisions
+- [User Guide](docs/USER_GUIDE.md) - Detailed usage instructions (coming soon)
+- [API Documentation](https://docs.rs/frog-viz) - Code documentation (coming soon)
+
+## 📝 License
+
+This project is licensed under the MIT License - see [LICENSE](LICENSE) for details.
+
+## 🙏 Acknowledgments
+
+- [egui](https://github.com/emilk/egui) - Immediate mode GUI framework
+- [Apache Arrow](https://arrow.apache.org/) - Columnar data format
+- [Rerun](https://www.rerun.io/) - Inspiration for visualization concepts
+
+---
+
+Built with ❤️ by data visualization enthusiasts 

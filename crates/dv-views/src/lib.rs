@@ -3,15 +3,16 @@
 mod space_view;
 mod viewport;
 mod time_series_view;
-mod plots;
+pub mod plots;
 mod tables;
 mod stats;
 
 pub use space_view::{SpaceView, SpaceViewId, SpaceViewConfig, SelectionState};
-pub use viewport::Viewport;
+pub use viewport::{Viewport, GridLayoutConfig, GridCell};
 pub use time_series_view::{TimeSeriesView, TimeSeriesConfig};
 pub use tables::{TableView, TableConfig};
 pub use plots::{ScatterPlotView, ScatterPlotConfig, BarChartView, BarChartConfig};
+pub use stats::SummaryStatsView;
 
 use std::sync::Arc;
 use parking_lot::RwLock;
@@ -23,9 +24,9 @@ use dv_core::{
 /// Hovered data information
 #[derive(Default, Clone)]
 pub struct HoveredData {
-    pub x: Option<f64>,
-    pub y: Option<f64>,
-    pub column: Option<String>,
+    pub x: f64,
+    pub y: f64,
+    pub column: String,
     pub view_id: Option<SpaceViewId>,
     pub point_index: Option<usize>,
 }

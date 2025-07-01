@@ -1,0 +1,12 @@
+[target.x86_64-pc-windows-msvc]
+rustflags = [
+    "-C", "target-feature=+crt-static",
+    "-C", "link-arg=/NODEFAULTLIB:msvcrt"
+]
+
+[target.x86_64-pc-windows-gnu]
+rustflags = ["-C", "link-arg=-lsqlite3"]
+
+[build]
+# Use LLD linker on Windows for better compatibility
+# rustflags = ["-C", "link-arg=-fuse-ld=lld"] 

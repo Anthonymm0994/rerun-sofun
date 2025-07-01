@@ -2,7 +2,6 @@
 
 use egui::{Ui, ScrollArea};
 use arrow::record_batch::RecordBatch;
-use arrow::array::Array;
 use serde_json::{json, Value};
 
 use crate::{SpaceView, SpaceViewId, SelectionState, ViewerContext};
@@ -42,6 +41,9 @@ pub struct TableView {
     cached_data: Option<RecordBatch>,
     last_navigation_pos: Option<NavigationPosition>,
     _scroll_state: ScrollState,
+    
+    // Column visibility
+    column_visibility: std::collections::HashMap<String, bool>,
 }
 
 #[derive(Default)]
@@ -60,6 +62,7 @@ impl TableView {
             cached_data: None,
             last_navigation_pos: None,
             _scroll_state: ScrollState::default(),
+            column_visibility: std::collections::HashMap::new(),
         }
     }
     
@@ -77,12 +80,30 @@ impl TableView {
         ).ok()
     }
     
-    fn render_table(&self, ui: &mut Ui, data: &RecordBatch, ctx: &ViewerContext) {
+    fn render_table(&mut self, ui: &mut Ui, data: &RecordBatch, ctx: &ViewerContext) {
         use egui_extras::{TableBuilder, Column};
         
         let text_height = egui::TextStyle::Body.resolve(ui.style()).size * 1.5;
         let num_rows = data.num_rows().min(self.config.max_rows_displayed);
         let faint_bg_color = ui.style().visuals.faint_bg_color;
+        let selection_bg_fill = ui.style().visuals.selection.bg_fill;
+        let selection_stroke_color = ui.style().visuals.selection.stroke.color;
+        
+        // Get schema fields first to avoid lifetime issues
+        let schema_fields = data.schema().fields().clone();
+        
+        // Track column visibility changes
+        let mut column_visibility_changes: Vec<(String, bool)> = Vec::new();
+        
+        // Determine visible columns (indices only)
+        let visible_column_indices: Vec<usize> = schema_fields
+            .iter()
+            .enumerate()
+            .filter(|(_, field)| {
+                self.column_visibility.get(field.name()).copied().unwrap_or(true)
+            })
+            .map(|(idx, _)| idx)
+            .collect();
         
         let mut builder = TableBuilder::new(ui)
             .striped(self.config.striped_rows)
@@ -96,7 +117,7 @@ impl TableView {
             builder = builder.column(Column::initial(50.0).at_least(40.0));
         }
         
-        for _ in 0..data.num_columns() {
+        for _ in 0..visible_column_indices.len() {
             builder = builder.column(
                 Column::initial(150.0)
                     .at_least(80.0)    // Minimum width
@@ -114,15 +135,75 @@ impl TableView {
                     });
                 }
                 
-                for field in data.schema().fields() {
+                for &col_idx in &visible_column_indices {
+                    let field = &schema_fields[col_idx];
                     header.col(|ui| {
-                        ui.strong(field.name());
+                        let response = ui.strong(field.name());
+                        
+                        // Right-click context menu for columns
+                        response.context_menu(|ui| {
+                            ui.label(egui::RichText::new(field.name()).strong());
+                            ui.separator();
+                            
+                            if ui.button("📋 Copy Column Name").clicked() {
+                                ui.output_mut(|o| o.copied_text = field.name().to_string());
+                                ui.close_menu();
+                            }
+                            
+                            if ui.button("🔢 Sort Ascending").clicked() {
+                                // TODO: Implement sorting
+                                ui.close_menu();
+                            }
+                            
+                            if ui.button("🔢 Sort Descending").clicked() {
+                                // TODO: Implement sorting
+                                ui.close_menu();
+                            }
+                            
+                            ui.separator();
+                            
+                            if ui.button("👁️ Hide Column").clicked() {
+                                column_visibility_changes.push((field.name().clone(), false));
+                                ui.close_menu();
+                            }
+                            
+                            if ui.button("👁️ Hide All Others").clicked() {
+                                for (idx, f) in schema_fields.iter().enumerate() {
+                                    if idx != col_idx {
+                                        column_visibility_changes.push((f.name().clone(), false));
+                                    }
+                                }
+                                ui.close_menu();
+                            }
+                            
+                            ui.separator();
+                            
+                            // Show column info
+                            ui.label(format!("Type: {:?}", field.data_type()));
+                        });
                     });
                 }
             })
             .body(|body| {
                 body.rows(text_height, num_rows, |row_index, mut row| {
-                    let row_color = if row_index % 2 == 0 {
+                    // Check if any row is hovered in a plot
+                    let hover_data = ctx.hovered_data.read();
+                    let nav_pos = ctx.navigation.get_context().position.clone();
+                    // Calculate actual row number for comparison
+                    let actual_row_idx = match nav_pos {
+                        NavigationPosition::Sequential(idx) => idx + row_index,
+                        _ => row_index,
+                    };
+                    
+                    // Check if this row should be highlighted
+                    let is_highlighted = hover_data.point_index
+                        .map(|hover_idx| hover_idx == actual_row_idx)
+                        .unwrap_or(false);
+                    
+                    // Determine row color
+                    let row_color = if is_highlighted {
+                        Some(selection_bg_fill)
+                    } else if row_index % 2 == 0 {
                         None
                     } else {
                         Some(faint_bg_color)
@@ -134,17 +215,39 @@ impl TableView {
                                 ui.painter().rect_filled(ui.available_rect_before_wrap(), 0.0, color);
                             }
                             // Show actual navigation position, not local row index
-                            let nav_pos = ctx.navigation.get_context().position.clone();
                             let actual_row = match nav_pos {
                                 NavigationPosition::Sequential(idx) => idx + row_index,
                                 NavigationPosition::Temporal(_) => row_index, // For temporal, show relative
                                 NavigationPosition::Categorical(_) => row_index, // For categorical, show relative
                             };
-                            ui.label(actual_row.to_string());
+                            
+                            let response = ui.label(actual_row.to_string());
+                            
+                            // Right-click menu for row selection
+                            response.context_menu(|ui| {
+                                ui.label(egui::RichText::new(format!("Row {}", actual_row)).strong());
+                                ui.separator();
+                                
+                                if ui.button("📋 Copy Row Data").clicked() {
+                                    let mut row_data = Vec::new();
+                                    for &col_idx in &visible_column_indices {
+                                        let column = data.column(col_idx);
+                                        let value = arrow::util::display::array_value_to_string(column, row_index).unwrap_or_default();
+                                        row_data.push(value);
+                                    }
+                                    ui.output_mut(|o| o.copied_text = row_data.join("\t"));
+                                    ui.close_menu();
+                                }
+                                
+                                if ui.button("📊 Focus in All Views").clicked() {
+                                    // TODO: Implement cross-view focus
+                                    ui.close_menu();
+                                }
+                            });
                         });
                     }
                     
-                    for col_idx in 0..data.num_columns() {
+                    for &col_idx in &visible_column_indices {
                         row.col(|ui| {
                             if let Some(color) = row_color {
                                 ui.painter().rect_filled(ui.available_rect_before_wrap(), 0.0, color);
@@ -157,14 +260,45 @@ impl TableView {
                             let display_value = if value.len() > 50 {
                                 format!("{}...", &value[..50])
                             } else {
-                                value
+                                value.clone()
                             };
                             
-                            ui.label(display_value);
+                            // Apply highlight text style if highlighted
+                            let response = if is_highlighted {
+                                ui.label(egui::RichText::new(display_value).color(selection_stroke_color))
+                            } else {
+                                ui.label(display_value)
+                            };
+                            
+                            // Right-click context menu for cells
+                            response.context_menu(|ui| {
+                                ui.label(egui::RichText::new("Cell Actions").strong());
+                                ui.separator();
+                                
+                                let value_clone = value.clone();
+                                if ui.button("📋 Copy Value").clicked() {
+                                    ui.output_mut(|o| o.copied_text = value_clone);
+                                    ui.close_menu();
+                                }
+                                
+                                if ui.button("🔍 Filter by Value").clicked() {
+                                    // TODO: Implement filtering
+                                    ui.close_menu();
+                                }
+                                
+                                ui.separator();
+                                ui.label(format!("Column: {}", schema_fields[col_idx].name()));
+                                ui.label(format!("Value: {}", if value.len() > 30 { &value[..30] } else { &value }));
+                            });
                         });
                     }
                 });
             });
+        
+        // Apply column visibility changes after rendering
+        for (col_name, visible) in column_visibility_changes {
+            self.column_visibility.insert(col_name, visible);
+        }
     }
 }
 
@@ -190,46 +324,46 @@ impl SpaceView for TableView {
         }
         
         // Draw the table
-        if let Some(data) = &self.cached_data {
-            // Show summary statistics in a clean panel
-            ui.group(|ui| {
-                ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new("📊 Summary").strong());
-                    ui.separator();
-                    ui.label(format!("Rows: {}", data.num_rows()));
-                    ui.separator();
-                    ui.label(format!("Columns: {}", data.num_columns()));
-                    
-                    // Add basic statistics for numeric columns
-                    for (idx, field) in data.schema().fields().iter().enumerate() {
-                        if field.data_type().is_numeric() {
-                            if let Some(column) = data.column(idx).as_any().downcast_ref::<arrow::array::Float64Array>() {
-                                let values: Vec<f64> = (0..column.len())
-                                    .filter_map(|i| if column.is_valid(i) { Some(column.value(i)) } else { None })
-                                    .collect();
-                                
-                                if !values.is_empty() {
-                                    let min = values.iter().fold(f64::INFINITY, |a, &b| a.min(b));
-                                    let max = values.iter().fold(f64::NEG_INFINITY, |a, &b| a.max(b));
-                                    let sum: f64 = values.iter().sum();
-                                    let mean = sum / values.len() as f64;
-                                    
-                                    ui.separator();
-                                    ui.label(format!("{}: min={:.2}, max={:.2}, mean={:.2}", 
-                                        field.name(), min, max, mean));
-                                }
+        if let Some(data) = self.cached_data.clone() {
+            // Simple row/column count at the top
+            ui.horizontal(|ui| {
+                ui.label(format!("Rows: {}", data.num_rows()));
+                ui.separator();
+                ui.label(format!("Columns: {}", data.num_columns()));
+                
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    // Column visibility menu
+                    ui.menu_button("⚙ Columns", |ui| {
+                        for field in data.schema().fields() {
+                            let col_name = field.name();
+                            let is_visible = self.column_visibility.get(col_name).copied().unwrap_or(true);
+                            
+                            if ui.checkbox(&mut is_visible.clone(), col_name).clicked() {
+                                self.column_visibility.insert(col_name.clone(), !is_visible);
                             }
                         }
-                    }
+                        
+                        ui.separator();
+                        
+                        if ui.button("Show All").clicked() {
+                            self.column_visibility.clear();
+                        }
+                        
+                        if ui.button("Hide All").clicked() {
+                            for field in data.schema().fields() {
+                                self.column_visibility.insert(field.name().clone(), false);
+                            }
+                        }
+                    });
                 });
             });
             
             ui.add_space(4.0);
             
             ScrollArea::both()
-                .id_source(&self.id)
+                .id_source(format!("table_{:?}", self.id))
                 .show(ui, |ui| {
-                    self.render_table(ui, data, ctx);
+                    self.render_table(ui, &data, ctx);
                 });
         } else {
             ui.centered_and_justified(|ui| {
