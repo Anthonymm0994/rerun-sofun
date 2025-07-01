@@ -77,7 +77,7 @@ impl TableView {
         ).ok()
     }
     
-    fn render_table(&self, ui: &mut Ui, data: &RecordBatch) {
+    fn render_table(&self, ui: &mut Ui, data: &RecordBatch, ctx: &ViewerContext) {
         use egui_extras::{TableBuilder, Column};
         
         let text_height = egui::TextStyle::Body.resolve(ui.style()).size * 1.5;
@@ -133,7 +133,14 @@ impl TableView {
                             if let Some(color) = row_color {
                                 ui.painter().rect_filled(ui.available_rect_before_wrap(), 0.0, color);
                             }
-                            ui.label(row_index.to_string());
+                            // Show actual navigation position, not local row index
+                            let nav_pos = ctx.navigation.get_context().position.clone();
+                            let actual_row = match nav_pos {
+                                NavigationPosition::Sequential(idx) => idx + row_index,
+                                NavigationPosition::Temporal(_) => row_index, // For temporal, show relative
+                                NavigationPosition::Categorical(_) => row_index, // For categorical, show relative
+                            };
+                            ui.label(actual_row.to_string());
                         });
                     }
                     
@@ -222,7 +229,7 @@ impl SpaceView for TableView {
             ScrollArea::both()
                 .id_source(&self.id)
                 .show(ui, |ui| {
-                    self.render_table(ui, data);
+                    self.render_table(ui, data, ctx);
                 });
         } else {
             ui.centered_and_justified(|ui| {

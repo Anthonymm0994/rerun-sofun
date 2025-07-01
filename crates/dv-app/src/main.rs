@@ -943,11 +943,11 @@ impl eframe::App for FrogApp {
             if show_navigation {
                 egui::TopBottomPanel::bottom("navigation_panel")
                     .resizable(false)
-                    .exact_height(50.0)
+                    .exact_height(42.0)  // Reduced from 50.0
                     .frame(
                         egui::Frame::none()
                             .fill(egui::Color32::from_gray(20))
-                            .inner_margin(egui::Margin::symmetric(8.0, 4.0))
+                            .inner_margin(egui::Margin::symmetric(8.0, 2.0))  // Reduced vertical margin
                             .outer_margin(0.0)
                     )
                     .show(ctx, |ui| {

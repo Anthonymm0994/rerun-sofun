@@ -171,15 +171,49 @@ impl SpaceView for ScatterPlotView {
             let plot = Plot::new(format!("{:?}", self.id))
                 .legend(Legend::default())
                 .show_grid(self.config.show_grid)
-                // NEVER allow scroll wheel zoom
-                .allow_scroll(false)
-                // ONLY zoom when Ctrl/Cmd is held down
-                .allow_zoom(modifiers.ctrl || modifiers.command)
+                // DISABLE auto bounds completely for consistent behavior
+                .auto_bounds(egui::Vec2b::new(false, false))
+                // Enable scroll wheel zoom like time series
+                .allow_scroll(true)
+                // Allow zoom with controls
+                .allow_zoom(true)
                 // Always allow drag
                 .allow_drag(true)
                 // Always allow box zoom
                 .allow_boxed_zoom(true)
                 .data_aspect(1.0);
+            
+            // Calculate bounds from ALL data points
+            let mut x_min = f64::INFINITY;
+            let mut x_max = -f64::INFINITY;
+            let mut y_min = f64::INFINITY;
+            let mut y_max = -f64::INFINITY;
+            
+            for &(x, y) in &data.points {
+                if x.is_finite() {
+                    x_min = x_min.min(x);
+                    x_max = x_max.max(x);
+                }
+                if y.is_finite() {
+                    y_min = y_min.min(y);
+                    y_max = y_max.max(y);
+                }
+            }
+            
+            // Apply fixed bounds with padding to show ENTIRE dataset
+            let plot = if x_min.is_finite() && x_max.is_finite() {
+                let x_padding = (x_max - x_min) * 0.05;
+                plot.include_x(x_min - x_padding).include_x(x_max + x_padding)
+            } else {
+                plot
+            };
+            
+            let plot = if y_min.is_finite() && y_max.is_finite() {
+                let y_padding = (y_max - y_min) * 0.05;
+                plot.include_y(y_min - y_padding).include_y(y_max + y_padding)
+            } else {
+                plot
+            };
             
             // Add help text
             if ui.is_rect_visible(ui.available_rect_before_wrap()) {

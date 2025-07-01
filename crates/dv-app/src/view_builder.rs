@@ -537,28 +537,37 @@ impl ViewBuilderDialog {
                 let (response, painter) = ui.allocate_painter(grid_size, Sense::hover());
                 let rect = response.rect;
                 
-                // Draw grid background
-                painter.rect_filled(rect, Rounding::same(4.0), Color32::from_gray(30));
+                // Draw grid background with better contrast
+                painter.rect_filled(rect, Rounding::same(4.0), Color32::from_gray(25));
                 
-                // Draw grid lines
+                // Draw grid lines - more visible
                 let cell_width = rect.width() / self.layout.grid_size.0 as f32;
                 let cell_height = rect.height() / self.layout.grid_size.1 as f32;
                 
+                // Draw vertical lines
                 for i in 1..self.layout.grid_size.0 {
                     let x = rect.left() + i as f32 * cell_width;
                     painter.line_segment(
                         [Pos2::new(x, rect.top()), Pos2::new(x, rect.bottom())],
-                        Stroke::new(1.0, Color32::from_gray(50))
+                        Stroke::new(1.5, Color32::from_gray(70))  // Thicker and brighter
                     );
                 }
                 
+                // Draw horizontal lines
                 for j in 1..self.layout.grid_size.1 {
                     let y = rect.top() + j as f32 * cell_height;
                     painter.line_segment(
                         [Pos2::new(rect.left(), y), Pos2::new(rect.right(), y)],
-                        Stroke::new(1.0, Color32::from_gray(50))
+                        Stroke::new(1.5, Color32::from_gray(70))  // Thicker and brighter
                     );
                 }
+                
+                // Draw outer border for better definition
+                painter.rect_stroke(
+                    rect,
+                    Rounding::same(4.0),
+                    Stroke::new(2.0, Color32::from_gray(90))
+                );
                 
                 // Draw cells
                 for cell in &self.layout.cells {

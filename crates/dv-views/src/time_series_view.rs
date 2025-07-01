@@ -313,7 +313,7 @@ impl SpaceView for TimeSeriesView {
             // Get drag delta for threshold detection OUTSIDE plot closure
             let drag_delta = ui.input(|i| i.pointer.delta()).length();
             
-            plot.show(ui, |plot_ui| {
+                            plot.show(ui, |plot_ui| {
                 // Get input state INSIDE plot context for proper detection
                 let right_clicked = plot_ui.response().secondary_clicked();
                 let left_clicked = plot_ui.response().clicked() && !plot_ui.response().dragged();
@@ -367,18 +367,11 @@ impl SpaceView for TimeSeriesView {
                             }
                         }
                         
-                        // Check if any visible series has data at this point
+                        // Store the index to highlight ALL series at this X position
                         if let Some(index) = best_index {
-                            let has_visible_data = plot_data.series.iter().any(|series| {
-                                index < series.values.len()
-                            });
-                            
-                            // Only set highlight if there's visible data at this point
-                            if has_visible_data {
-                                let mut hover_data = ctx.hovered_data.write();
-                                hover_data.view_id = Some(self.id.clone());
-                                hover_data.point_index = Some(index);
-                            }
+                            let mut hover_data = ctx.hovered_data.write();
+                            hover_data.view_id = Some(self.id.clone());
+                            hover_data.point_index = Some(index);
                         }
                     }
                 }
@@ -403,9 +396,9 @@ impl SpaceView for TimeSeriesView {
                     }
                 }
                 
-                // Draw each series as a line
-                let mut series_idx = 0;
-                for series in &plot_data.series {
+                // First pass: Draw all lines and regular points
+                let mut series_colors = Vec::new();
+                for (series_idx, series) in plot_data.series.iter().enumerate() {
                     if series.values.len() != plot_data.x_values.len() {
                         continue; // Skip mismatched series
                     }
@@ -430,6 +423,7 @@ impl SpaceView for TimeSeriesView {
                         ];
                         colors[series_idx % colors.len()]
                     });
+                    series_colors.push(color);
                     
                     // Draw line - this will be controlled by legend
                     let line = Line::new(plot_points)
@@ -438,28 +432,39 @@ impl SpaceView for TimeSeriesView {
                         .name(&series.name);
                     plot_ui.line(line);
                     
-                    // Draw points with same name - legend will control both line and points together
-                    let points_plot = Points::new(PlotPoints::new(points.clone()))
-                        .color(color)
-                        .radius(3.0)
-                        .shape(egui_plot::MarkerShape::Circle)
-                        .name(&series.name); // Same name as line for unified legend control
-                    plot_ui.points(points_plot);
-                    
-                    // Highlight and show tooltip for left-clicked position
-                    // The highlight points don't have a name, so they'll only be visible
-                    // when their parent series is visible (not hidden by legend)
-                    if let Some(hover_data) = &ctx.hovered_data.read().point_index {
-                        if *hover_data < points.len() {
-                            // Highlight the point - no name means it follows parent visibility
-                            let highlight_point = Points::new(vec![points[*hover_data]])
+                    // Draw regular points if configured
+                    if self.config.show_points {
+                        let points_plot = Points::new(PlotPoints::new(points))
+                            .color(color)
+                            .radius(self.config.point_radius)
+                            .shape(egui_plot::MarkerShape::Circle);
+                        // Don't name points to avoid legend color conflicts
+                        plot_ui.points(points_plot);
+                    }
+                }
+                
+                // Second pass: Draw highlights and tooltips
+                if let Some(hover_index) = ctx.hovered_data.read().point_index {
+                    for (series_idx, series) in plot_data.series.iter().enumerate() {
+                        if series.values.len() != plot_data.x_values.len() {
+                            continue;
+                        }
+                        
+                        if hover_index < series.values.len() {
+                            let x = plot_data.x_values[hover_index];
+                            let y = series.values[hover_index];
+                            let point = [x, y];
+                            let color = series_colors.get(series_idx).copied()
+                                .unwrap_or(Color32::WHITE);
+                            
+                            // Draw highlight WITHOUT name
+                            let highlight_point = Points::new(vec![point])
                                 .color(color.gamma_multiply(1.5))
                                 .radius(6.0)
                                 .shape(egui_plot::MarkerShape::Circle);
                             plot_ui.points(highlight_point);
                             
-                            // Show value tooltip
-                            let point = points[*hover_data];
+                            // Show tooltip
                             let text = egui_plot::Text::new(
                                 egui_plot::PlotPoint::new(point[0], point[1]),
                                 egui::RichText::new(format!("{}: {:.3}", series.name, point[1]))
@@ -471,8 +476,6 @@ impl SpaceView for TimeSeriesView {
                             plot_ui.text(text);
                         }
                     }
-                    
-                    series_idx += 1;
                 }
             });
         } else {
