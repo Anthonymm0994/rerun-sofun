@@ -17,5 +17,6 @@ indexmap.workspace = true
 arrow.workspace = true
 async-trait.workspace = true
 num_cpus = "1.16"
+uuid = { version = "1.0", features = ["v4", "serde"] }
 
 [dev-dependencies] 

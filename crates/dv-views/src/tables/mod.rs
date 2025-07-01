@@ -88,7 +88,7 @@ impl TableView {
             .resizable(self.config.resizable_columns)
             .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
             .min_scrolled_height(0.0)
-            .max_scroll_height(400.0);
+            .vscroll(true);
         
         // Add columns
         if self.config.show_row_numbers {

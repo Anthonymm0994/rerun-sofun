@@ -69,6 +69,11 @@ impl Viewport {
         self.dock_state = create_grid_dock_state(view_ids);
     }
     
+    /// Check if the viewport has any views
+    pub fn is_empty(&self) -> bool {
+        self.space_views.is_empty()
+    }
+    
     /// Draw the viewport
     pub fn ui(&mut self, ui: &mut Ui, viewer_context: &ViewerContext) {
         // Update context with current time axis views
@@ -125,12 +130,48 @@ fn create_grid_dock_state(view_ids: Vec<SpaceViewId>) -> DockState<SpaceViewId> 
         return DockState::new(vec![]);
     }
     
+    if view_ids.len() == 1 {
+        return DockState::new(vec![view_ids[0].clone()]);
+    }
+    
+    // For now, create a simple but effective layout
+    // Start with the first view as the main surface
     let mut dock_state = DockState::new(vec![view_ids[0].clone()]);
     
-    // For simplicity, add all other views as tabs in the same panel
-    // This avoids complex node tracking while still providing a functional layout
-    for id in view_ids.into_iter().skip(1) {
-        dock_state.push_to_first_leaf(id);
+    // Add other views strategically based on count
+    match view_ids.len() {
+        2..=4 => {
+            // For 2-4 views, add them to create a reasonable split
+            for id in view_ids.into_iter().skip(1) {
+                dock_state.push_to_first_leaf(id);
+            }
+        }
+        5..=8 => {
+            // For 5-8 views, create more structured layout
+            // Add half as individual panels, rest as tabs
+            let split_point = view_ids.len() / 2;
+            
+            for (idx, id) in view_ids.into_iter().skip(1).enumerate() {
+                if idx < split_point {
+                    dock_state.push_to_first_leaf(id);
+                } else {
+                    // Add as tabs to existing panels
+                    dock_state.push_to_first_leaf(id);
+                }
+            }
+        }
+        _ => {
+            // For 9+ views, add first few as panels, rest as tabs
+            for (idx, id) in view_ids.into_iter().skip(1).enumerate() {
+                if idx < 3 {
+                    // First 3 additional views get their own space
+                    dock_state.push_to_first_leaf(id);
+                } else {
+                    // Rest become tabs
+                    dock_state.push_to_first_leaf(id);
+                }
+            }
+        }
     }
     
     dock_state

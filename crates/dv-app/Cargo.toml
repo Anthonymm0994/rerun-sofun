@@ -28,7 +28,7 @@ egui_dock = { workspace = true }
 egui_extras = { workspace = true }
 egui_plot = { workspace = true }
 
-# Data
+# Data dependencies
 arrow = { workspace = true }
 
 # Async
@@ -41,6 +41,9 @@ rfd = "0.13"
 # Database
 rusqlite = { version = "0.30", features = ["bundled"] }
 chrono = { workspace = true }
+
+# Additional dependencies
+uuid = { version = "1.0", features = ["v4", "serde"] }
 
 [target.'cfg(windows)'.dependencies]
 winapi = { version = "0.3", features = ["wincon", "winuser"] }

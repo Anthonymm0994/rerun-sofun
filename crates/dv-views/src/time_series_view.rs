@@ -2,12 +2,12 @@
 //! Based on Rerun's PlotView
 
 use egui::{Ui, Color32};
-use egui_plot::{Plot, PlotPoints, Line, Legend, PlotBounds, Points};
+use egui_plot::{Plot, PlotPoints, Line, Legend, Points, LineStyle};
 use arrow::array::{Float64Array, Int64Array};
-use serde_json::{json, Value};
+use uuid::Uuid;
 
 use crate::{SpaceView, SpaceViewId, SelectionState, ViewerContext};
-use dv_core::navigation::{NavigationPosition, NavigationMode};
+use dv_core::navigation::NavigationPosition;
 
 /// Configuration for time series view
 #[derive(Clone)]
@@ -59,36 +59,21 @@ pub struct TimeSeriesView {
     pub config: TimeSeriesConfig,
     
     // State
-    _zoom_state: ZoomState,
     cached_data: Option<PlotData>,
     last_navigation_pos: Option<NavigationPosition>,
 }
 
-/// Zoom state for the plot
-struct ZoomState {
-    _current_bounds: Option<PlotBounds>,
-    _is_panning: bool,
-    _is_selecting: bool,
-}
-
-impl Default for ZoomState {
-    fn default() -> Self {
-        Self {
-            _current_bounds: None,
-            _is_panning: false,
-            _is_selecting: false,
-        }
-    }
-}
-
 /// Cached plot data
+#[derive(Debug, Clone)]
 struct PlotData {
     x_values: Vec<f64>,
-    series: Vec<PlotSeries>,
+    series: Vec<SeriesData>,
+    x_column: String,
 }
 
 /// A single data series
-struct PlotSeries {
+#[derive(Debug, Clone)]
+struct SeriesData {
     name: String,
     values: Vec<f64>,
     color: Option<Color32>,
@@ -109,72 +94,116 @@ impl TimeSeriesView {
             id,
             title,
             config: TimeSeriesConfig::default(),
-            _zoom_state: ZoomState::default(),
             cached_data: None,
             last_navigation_pos: None,
         }
     }
     
-    /// Get plot data from the current data source
-    fn fetch_plot_data(&mut self, ctx: &ViewerContext) -> Option<PlotData> {
+    /// Fetch plot data based on current navigation context
+    fn fetch_plot_data(&self, ctx: &ViewerContext) -> Option<PlotData> {
         let data_source = ctx.data_source.read();
         let data_source = data_source.as_ref()?;
         
-        // Get current navigation position
-        let nav_pos = ctx.navigation.get_context().position.clone();
+        // Get navigation context
+        let nav_context = ctx.navigation.get_context();
         
-        // Query data at current position
-        let batch = ctx.runtime_handle.block_on(
-            data_source.query_at(&nav_pos)
-        ).ok()?;
+        // Use the runtime from the viewer context - CRITICAL FIX
+        let schema = ctx.runtime_handle.block_on(data_source.schema());
         
-        // Extract columns
-        let mut plot_data = PlotData {
-            x_values: Vec::new(),
-            series: Vec::new(),
+        // Find X column in schema fields
+        let x_column = self.config.x_column.as_ref()?;
+        let x_field = schema.fields().iter().find(|f| f.name() == x_column)?;
+        
+        if self.config.y_columns.is_empty() {
+            return None;
+        }
+        
+        // For now, get a reasonable range of data (last 1000 points or all data)
+        let total_rows = nav_context.total_rows;
+        let range_size = total_rows; // Get ALL data, not just last 1000
+        let start_row = 0; // Start from beginning
+        
+        // Create a navigation range to fetch data
+        let range = dv_core::navigation::NavigationRange {
+            start: dv_core::navigation::NavigationPosition::Sequential(start_row),
+            end: dv_core::navigation::NavigationPosition::Sequential(start_row + range_size),
         };
         
-        // Get X axis data
-        if let Some(x_col) = &self.config.x_column {
-            if let Some(array) = batch.column_by_name(x_col) {
-                if let Some(float_array) = array.as_any().downcast_ref::<Float64Array>() {
-                    plot_data.x_values = float_array.values().to_vec();
-                } else if let Some(int_array) = array.as_any().downcast_ref::<Int64Array>() {
-                    plot_data.x_values = int_array.values().iter().map(|&v| v as f64).collect();
-                }
+        // Fetch data using query_range - use the context runtime
+        let data = ctx.runtime_handle.block_on(data_source.query_range(&range)).ok()?;
+        
+        // Extract X values
+        let x_values = match x_field.data_type() {
+            arrow::datatypes::DataType::Float64 => {
+                let array = data.column_by_name(x_column)?
+                    .as_any()
+                    .downcast_ref::<Float64Array>()?;
+                (0..array.len()).map(|i| array.value(i)).collect::<Vec<_>>()
             }
-        } else {
-            // Use index as X axis
-            plot_data.x_values = (0..batch.num_rows()).map(|i| i as f64).collect();
+            arrow::datatypes::DataType::Int64 => {
+                let array = data.column_by_name(x_column)?
+                    .as_any()
+                    .downcast_ref::<Int64Array>()?;
+                (0..array.len()).map(|i| array.value(i) as f64).collect::<Vec<_>>()
+            }
+            _ => {
+                // For other types, use row index as X
+                (0..data.num_rows()).map(|i| (start_row + i) as f64).collect::<Vec<_>>()
+            }
+        };
+        
+        // Extract Y series
+        let mut series = Vec::new();
+        for y_column in &self.config.y_columns {
+            if let Some(y_field) = schema.fields().iter().find(|f| f.name() == y_column) {
+                let y_values = match y_field.data_type() {
+                    arrow::datatypes::DataType::Float64 => {
+                        if let Some(array) = data.column_by_name(y_column) {
+                            if let Some(float_array) = array.as_any().downcast_ref::<Float64Array>() {
+                                (0..float_array.len()).map(|i| float_array.value(i)).collect::<Vec<_>>()
+                            } else {
+                                continue;
+                            }
+                        } else {
+                            continue;
+                        }
+                    }
+                    arrow::datatypes::DataType::Int64 => {
+                        if let Some(array) = data.column_by_name(y_column) {
+                            if let Some(int_array) = array.as_any().downcast_ref::<Int64Array>() {
+                                (0..int_array.len()).map(|i| int_array.value(i) as f64).collect::<Vec<_>>()
+                            } else {
+                                continue;
+                            }
+                        } else {
+                            continue;
+                        }
+                    }
+                    _ => continue,
+                };
+                
+                series.push(SeriesData {
+                    name: y_column.clone(),
+                    values: y_values,
+                    color: None,
+                });
+            }
         }
         
-        // Get Y axis data for each column
-        for y_col in &self.config.y_columns {
-            if let Some(array) = batch.column_by_name(y_col) {
-                let mut values = Vec::new();
-                
-                if let Some(float_array) = array.as_any().downcast_ref::<Float64Array>() {
-                    values = float_array.values().to_vec();
-                } else if let Some(int_array) = array.as_any().downcast_ref::<Int64Array>() {
-                    values = int_array.values().iter().map(|&v| v as f64).collect();
-                }
-                
-                if !values.is_empty() {
-                    plot_data.series.push(PlotSeries {
-                        name: y_col.clone(),
-                        values,
-                        color: None,
-                    });
-                }
-            }
+        if series.is_empty() {
+            return None;
         }
         
-        Some(plot_data)
+        Some(PlotData {
+            x_values,
+            series,
+            x_column: x_column.clone(),
+        })
     }
 }
 
 impl SpaceView for TimeSeriesView {
-    fn id(&self) -> &SpaceViewId {
+    fn id(&self) -> &Uuid {
         &self.id
     }
     
@@ -197,202 +226,259 @@ impl SpaceView for TimeSeriesView {
         // Draw the plot
         if let Some(plot_data) = &self.cached_data {
             // Check keyboard modifiers
-            let modifiers = ui.input(|i| i.modifiers);
-            let pointer_down = ui.input(|i| i.pointer.primary_down());
+            let _modifiers = ui.input(|i| i.modifiers);
+            
+            // Configure plot with proper axis labels
+            let x_axis_name = self.config.x_column.as_deref().unwrap_or("Row Index");
+            let y_axis_name = if self.config.y_columns.len() == 1 {
+                self.config.y_columns[0].as_str()
+            } else {
+                "Value"
+            };
             
             let plot = Plot::new(format!("{:?}", self.id))
                 .show_grid(self.config.show_grid)
-                // NEVER allow scroll wheel zoom
-                .allow_scroll(false)
-                // ONLY zoom when Ctrl/Cmd is held down - nothing else!
-                .allow_zoom(modifiers.ctrl || modifiers.command)
-                // Always allow drag
+                .x_axis_label(x_axis_name)
+                .y_axis_label(y_axis_name)
+                // DISABLE auto bounds completely
+                .auto_bounds(egui::Vec2b::new(false, false))
+                // ENABLE scroll wheel zoom like Rerun
+                .allow_scroll(true)
+                // Allow zoom with explicit controls
+                .allow_zoom(true)
+                // Allow drag for panning
                 .allow_drag(true)
-                // Always allow box zoom
+                // Right-click drag for box zoom
                 .allow_boxed_zoom(true);
             
+            // Calculate bounds from ALL data, not just current window
+            let mut x_min = f64::INFINITY;
+            let mut x_max = -f64::INFINITY;
+            let mut y_min = f64::INFINITY;
+            let mut y_max = -f64::INFINITY;
+            
+            // Use ALL data points to calculate bounds, not just visible window
+            for &x in &plot_data.x_values {
+                if x.is_finite() {
+                    x_min = x_min.min(x);
+                    x_max = x_max.max(x);
+                }
+            }
+            
+            for series in &plot_data.series {
+                for &value in &series.values {
+                    if value.is_finite() {
+                        y_min = y_min.min(value);
+                        y_max = y_max.max(value);
+                    }
+                }
+            }
+            
+            // Apply fixed bounds with padding to show ENTIRE dataset
+            let plot = if x_min.is_finite() && x_max.is_finite() {
+                let x_padding = (x_max - x_min) * 0.05;
+                plot.include_x(x_min - x_padding).include_x(x_max + x_padding)
+            } else {
+                plot
+            };
+            
+            let plot = if y_min.is_finite() && y_max.is_finite() {
+                let y_padding = (y_max - y_min) * 0.1;
+                plot.include_y(y_min - y_padding).include_y(y_max + y_padding)
+            } else {
+                plot
+            };
+            
             // Set legend visibility
-            let plot = if self.config.show_legend {
+            let plot = if self.config.show_legend && self.config.y_columns.len() > 1 {
                 plot.legend(Legend::default())
             } else {
                 plot
             };
             
-            // Add instructions tooltip
-            if ui.is_rect_visible(ui.available_rect_before_wrap()) {
-                let help_text = if modifiers.ctrl || modifiers.command {
-                    "Scroll to zoom, Drag to pan, Right-click+Drag for box zoom"
-                } else {
-                    "Hold Ctrl to zoom, Drag to pan, Right-click+Drag for box zoom"
-                };
-                
-                ui.with_layout(egui::Layout::top_down(egui::Align::Max), |ui| {
-                    ui.label(
-                        egui::RichText::new(help_text)
-                            .small()
-                            .color(ui.style().visuals.weak_text_color())
-                    );
-                });
-            }
+            // Show data range info and controls
+            ui.horizontal(|ui| {
+                if let Some(x_range) = plot_data.x_values.first().zip(plot_data.x_values.last()) {
+                    ui.label(format!("{}: {:.2} to {:.2}", plot_data.x_column, x_range.0, x_range.1));
+                    ui.separator();
+                }
+                ui.label(format!("Series: {}", plot_data.series.len()));
+                ui.separator();
+                ui.label(format!("Points: {}", plot_data.x_values.len()));
+            });
+            ui.separator();
+            
+            let mut _clicked_point: Option<usize> = None; // Placeholder for future use
+            
+            // Get drag delta for threshold detection OUTSIDE plot closure
+            let drag_delta = ui.input(|i| i.pointer.delta()).length();
             
             plot.show(ui, |plot_ui| {
-                // Draw vertical time cursor if this view shares time axis
+                // Get input state INSIDE plot context for proper detection
+                let right_clicked = plot_ui.response().secondary_clicked();
+                let left_clicked = plot_ui.response().clicked() && !plot_ui.response().dragged();
+                let is_dragging = plot_ui.response().dragged();
+                
+                // Draw vertical time cursor - ALWAYS show it for navigation feedback
                 let nav_context = ctx.navigation.get_context();
-                let time_axis_views = ctx.time_axis_views.read();
-                let is_time_synced = time_axis_views.contains(&self.id);
+                let cursor_x = match &nav_context.position {
+                    NavigationPosition::Sequential(idx) => {
+                        plot_data.x_values.get(*idx).copied().unwrap_or_default()
+                    }
+                    NavigationPosition::Temporal(ts) => *ts as f64,
+                    NavigationPosition::Categorical(_) => 0.0,
+                };
                 
-                // Show cursor if we're dragging in any time-synced view
-                let show_cursor = is_time_synced && ctx.hovered_data.read().view_id.as_ref()
-                    .map(|id| time_axis_views.contains(id))
-                    .unwrap_or(false);
-                
-                if show_cursor {
-                    // Use navigation position as the cursor position
-                    let cursor_x = match &nav_context.position {
-                        NavigationPosition::Sequential(idx) => *idx as f64,
-                        NavigationPosition::Temporal(ts) => {
-                            // TODO: Convert timestamp to x coordinate based on time axis
-                            // For now, use timestamp directly
-                            *ts as f64
-                        }
-                        NavigationPosition::Categorical(_cat) => {
-                            // Categories don't make sense for time series
-                            0.0
-                        }
-                    };
-                    
-                    // Only show cursor if it's within our data range
-                    if let Some(x_min) = plot_data.x_values.first() {
-                        if let Some(x_max) = plot_data.x_values.last() {
-                            if cursor_x >= *x_min && cursor_x <= *x_max {
-                                // Draw vertical line at cursor position
-                                let line_points = vec![[cursor_x, plot_ui.plot_bounds().min()[1]], [cursor_x, plot_ui.plot_bounds().max()[1]]];
-                                let cursor_line = Line::new(line_points)
-                                    .color(Color32::from_rgba_unmultiplied(255, 255, 255, 180))
-                                    .width(2.0);
-                                plot_ui.line(cursor_line);
+                // Handle plot interactions with proper detection
+                if let Some(pointer_coord) = plot_ui.pointer_coordinate() {
+                    // RIGHT-CLICK: Place marker (only if drag is less than 3 pixels)
+                    if right_clicked && drag_delta < 3.0 {
+                        // Find nearest data point X coordinate
+                        let mut best_dist = f64::INFINITY;
+                        let mut best_x = pointer_coord.x;
+                        
+                        for &x in &plot_data.x_values {
+                            let dist = (x - pointer_coord.x).abs();
+                            if dist < best_dist {
+                                best_dist = dist;
+                                best_x = x;
                             }
+                        }
+                        
+                        // Update cursor position to snap to nearest data point
+                        if let Some(index) = plot_data.x_values.iter().position(|&x| x == best_x) {
+                            let _ = ctx.navigation.seek_to(
+                                dv_core::navigation::NavigationPosition::Sequential(index)
+                            );
+                        }
+                    }
+                    
+                    // LEFT-CLICK: Highlight values at X-location (only if not dragging)
+                    if left_clicked && !is_dragging {
+                        // Find nearest X coordinate for highlighting
+                        let mut best_dist = f64::INFINITY;
+                        let mut best_x = pointer_coord.x;
+                        
+                        for &x in &plot_data.x_values {
+                            let dist = (x - pointer_coord.x).abs();
+                            if dist < best_dist {
+                                best_dist = dist;
+                                best_x = x;
+                            }
+                        }
+                        
+                        // Store the highlighted X position for cross-plot sync
+                        if let Some(index) = plot_data.x_values.iter().position(|&x| x == best_x) {
+                            let mut hover_data = ctx.hovered_data.write();
+                            hover_data.view_id = Some(self.id.clone());
+                            hover_data.point_index = Some(index);
                         }
                     }
                 }
                 
-                // Draw each series
-                for (idx, series) in plot_data.series.iter().enumerate() {
+                // Draw WHITE vertical marker bar at cursor position - always visible
+                if !plot_data.x_values.is_empty() {
+                    if let (Some(x_min), Some(x_max)) = (plot_data.x_values.first(), plot_data.x_values.last()) {
+                        if cursor_x >= *x_min && cursor_x <= *x_max {
+                            // Draw vertical line at cursor position
+                            let bounds = plot_ui.plot_bounds();
+                            let line_points = vec![
+                                [cursor_x, bounds.min()[1]], 
+                                [cursor_x, bounds.max()[1]]
+                            ];
+                            // White, prominent vertical bar like Rerun
+                            let cursor_line = Line::new(line_points)
+                                .color(Color32::WHITE)
+                                .width(2.0)
+                                .style(LineStyle::Solid);
+                            plot_ui.line(cursor_line);
+                        }
+                    }
+                }
+                
+                // Draw each series as a line
+                let mut series_idx = 0;
+                for series in &plot_data.series {
+                    if series.values.len() != plot_data.x_values.len() {
+                        continue; // Skip mismatched series
+                    }
+                    
+                    // Create points for this series
                     let points: Vec<[f64; 2]> = plot_data.x_values.iter()
                         .zip(&series.values)
                         .map(|(&x, &y)| [x, y])
                         .collect();
                     
+                    let plot_points = PlotPoints::new(points.clone());
+                    
                     // Choose color
                     let color = series.color.unwrap_or_else(|| {
                         let colors = [
                             Color32::from_rgb(31, 119, 180),   // Blue
-                            Color32::from_rgb(255, 127, 14),   // Orange
+                            Color32::from_rgb(255, 127, 14),   // Orange  
                             Color32::from_rgb(44, 160, 44),    // Green
                             Color32::from_rgb(214, 39, 40),    // Red
                             Color32::from_rgb(148, 103, 189),  // Purple
                             Color32::from_rgb(140, 86, 75),    // Brown
-                            Color32::from_rgb(227, 119, 194),  // Pink
-                            Color32::from_rgb(127, 127, 127),  // Gray
                         ];
-                        colors[idx % colors.len()]
+                        colors[series_idx % colors.len()]
                     });
                     
-                    // Draw line
-                    if self.config.show_lines {
-                        let plot_points = PlotPoints::new(points.clone());
-                        let line = Line::new(plot_points)
-                            .color(color)
-                            .width(self.config.line_width)
-                            .name(&series.name);
-                        plot_ui.line(line);
-                    }
+                    // Draw line - this will be controlled by legend
+                    let line = Line::new(plot_points)
+                        .color(color)
+                        .width(2.0)
+                        .name(&series.name);
+                    plot_ui.line(line);
                     
-                    // Draw points
-                    if self.config.show_points {
-                        let plot_points = PlotPoints::new(points.clone());
-                        let points_plot = Points::new(plot_points)
-                            .color(color)
-                            .radius(self.config.point_radius)
-                            .shape(egui_plot::MarkerShape::Circle)
-                            .name(&series.name);
-                        plot_ui.points(points_plot);
-                    }
+                    // Draw points with same name - legend will control both line and points together
+                    let points_plot = Points::new(PlotPoints::new(points.clone()))
+                        .color(color)
+                        .radius(3.0)
+                        .shape(egui_plot::MarkerShape::Circle)
+                        .name(&series.name); // Same name as line for unified legend control
+                    plot_ui.points(points_plot);
                     
-                    // Draw value markers at cursor position
-                    if show_cursor {
-                        let cursor_x = match &nav_context.position {
-                            NavigationPosition::Sequential(idx) => *idx as f64,
-                            NavigationPosition::Temporal(ts) => *ts as f64,
-                            NavigationPosition::Categorical(_) => 0.0,
-                        };
-                        
-                        // Find the closest point to the cursor
-                        if let Some((closest_idx, &closest_x)) = plot_data.x_values.iter()
-                            .enumerate()
-                            .min_by(|(_, a), (_, b)| {
-                                (**a - cursor_x).abs().partial_cmp(&(**b - cursor_x).abs()).unwrap()
-                            }) {
+                    // Highlight and show tooltip for left-clicked position
+                    // The highlight points don't have a name, so they'll only be visible
+                    // when their parent series is visible (not hidden by legend)
+                    if let Some(hover_data) = &ctx.hovered_data.read().point_index {
+                        if *hover_data < points.len() {
+                            // Highlight the point - no name means it follows parent visibility
+                            let highlight_point = Points::new(vec![points[*hover_data]])
+                                .color(color.gamma_multiply(1.5))
+                                .radius(6.0)
+                                .shape(egui_plot::MarkerShape::Circle);
+                            plot_ui.points(highlight_point);
                             
-                            if (closest_x - cursor_x).abs() < 1.0 { // Within reasonable distance
-                                let y_value = series.values[closest_idx];
-                                
-                                // Draw a highlight point
-                                let highlight_point = Points::new(vec![[closest_x, y_value]])
-                                    .color(color)
-                                    .radius(self.config.point_radius * 2.0)
-                                    .shape(egui_plot::MarkerShape::Circle);
-                                plot_ui.points(highlight_point);
-                            }
+                            // Show value tooltip
+                            let point = points[*hover_data];
+                            let text = egui_plot::Text::new(
+                                egui_plot::PlotPoint::new(point[0], point[1]),
+                                egui::RichText::new(format!("{}: {:.3}", series.name, point[1]))
+                                    .color(Color32::WHITE)
+                                    .background_color(Color32::from_rgba_premultiplied(0, 0, 0, 180))
+                                    .text_style(egui::TextStyle::Small)
+                            )
+                            .anchor(egui::Align2::LEFT_BOTTOM);
+                            plot_ui.text(text);
                         }
                     }
+                    
+                    series_idx += 1;
                 }
-                
-                // Handle hover - only for dragging the time cursor in time-synced views
-                if is_time_synced {
-                    if let Some(pointer_coord) = plot_ui.pointer_coordinate() {
-                        if pointer_down {
-                            // Update navigation position when dragging
-                            let new_index = pointer_coord.x.round() as usize;
-                            if new_index < plot_data.x_values.len() {
-                                // Use the appropriate position type based on navigation mode
-                                match nav_context.mode {
-                                    NavigationMode::Sequential => {
-                                        let _ = ctx.navigation.seek_to(NavigationPosition::Sequential(new_index));
-                                    }
-                                    NavigationMode::Temporal => {
-                                        // TODO: Convert x coordinate to timestamp
-                                        let _ = ctx.navigation.seek_to(NavigationPosition::Temporal(new_index as i64));
-                                    }
-                                    NavigationMode::Categorical { .. } => {
-                                        // Categories don't make sense for time series plots
-                                    }
-                                }
-                            }
-                            
-                            // Mark this view as hovered
-                            let mut hover_data = ctx.hovered_data.write();
-                            hover_data.view_id = Some(self.id.clone());
-                        }
-                    } else if ctx.hovered_data.read().view_id == Some(self.id.clone()) && !pointer_down {
-                        // Clear hover when not dragging
-                        let mut hover_data = ctx.hovered_data.write();
-                        hover_data.view_id = None;
-                    }
-                }
-                
-                // Note: Double-click to reset is handled automatically by egui_plot
             });
         } else {
             // No data message
             ui.centered_and_justified(|ui| {
                 ui.label("No data to display");
+                ui.label(egui::RichText::new("Check data source and navigation settings").weak());
             });
         }
     }
     
-    fn save_config(&self) -> Value {
-        json!({
+    fn save_config(&self) -> serde_json::Value {
+        serde_json::json!({
             "x_column": self.config.x_column,
             "y_columns": self.config.y_columns,
             "show_points": self.config.show_points,
@@ -404,7 +490,7 @@ impl SpaceView for TimeSeriesView {
         })
     }
     
-    fn load_config(&mut self, config: Value) {
+    fn load_config(&mut self, config: serde_json::Value) {
         if let Some(x_column) = config.get("x_column").and_then(|v| v.as_str()) {
             self.config.x_column = Some(x_column.to_string());
         }

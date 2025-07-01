@@ -27,6 +27,7 @@ pub struct HoveredData {
     pub y: Option<f64>,
     pub column: Option<String>,
     pub view_id: Option<SpaceViewId>,
+    pub point_index: Option<usize>,
 }
 
 /// Time control state

@@ -54,7 +54,7 @@ pub struct NavigationPanelConfig {
 impl Default for NavigationPanelConfig {
     fn default() -> Self {
         Self {
-            height: 80.0,
+            height: 50.0,
             show_playback_controls: true,
             show_range_selection: true,
             show_current_value: true,
@@ -99,7 +99,7 @@ impl NavigationPanel {
             ui.separator();
             
             // Mode selector
-            self.show_mode_selector(ui);
+            self.render_navigation_mode(ui);
         });
     }
     
@@ -146,6 +146,19 @@ impl NavigationPanel {
         
         ui.separator();
         
+        // Reset Plot button - more prominent and functional
+        let reset_button = ui.add_sized(
+            [70.0, 24.0],
+            egui::Button::new(egui::RichText::new("🔄 Reset").size(12.0).strong())
+                .fill(Color32::from_rgb(60, 100, 140))
+        );
+        if reset_button.on_hover_text("Reset plot zoom and view (Z key)").clicked() {
+            // TODO: Send reset event to all plots
+            // For now, we'll implement this as a viewer context event
+        }
+        
+        ui.separator();
+        
         // Speed control with better formatting
         ui.label("Speed:");
         ui.add_sized(
@@ -168,20 +181,25 @@ impl NavigationPanel {
         
         ui.separator();
         
-        // Current position display
-        let nav_context = self.navigation.get_context();
-        let position_text = match &nav_context.position {
-            NavigationPosition::Sequential(idx) => {
-                format!("{} / {}", idx + 1, nav_context.total_rows)
-            }
-            NavigationPosition::Temporal(time) => {
-                format!("T: {}", time)
-            }
-            NavigationPosition::Categorical(cat) => {
-                format!("Cat: {}", cat)
-            }
-        };
-        ui.label(egui::RichText::new(position_text).monospace());
+        // Show current position
+        ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+            ui.set_min_width(100.0);
+            
+            let nav_ctx = self.navigation.get_context();
+            let position_text = match &nav_ctx.position {
+                NavigationPosition::Sequential(idx) => {
+                    format!("Row {} of {}", idx + 1, nav_ctx.total_rows)
+                }
+                NavigationPosition::Temporal(ts) => {
+                    format!("Time: {}", ts)
+                }
+                NavigationPosition::Categorical(val) => {
+                    format!("Category: {}", val)
+                }
+            };
+            
+            ui.label(egui::RichText::new(position_text).strong());
+        });
     }
     
     /// Draw the timeline
@@ -241,32 +259,46 @@ impl NavigationPanel {
     }
     
     /// Show mode selector
-    fn show_mode_selector(&mut self, ui: &mut egui::Ui) {
+    fn render_navigation_mode(&mut self, ui: &mut Ui) {
         let context = self.navigation.get_context();
-        let mode_text = match context.mode {
-            NavigationMode::Temporal => "⏱ Time",
-            NavigationMode::Sequential => "📊 Rows", 
-            NavigationMode::Categorical { .. } => "📝 Categories",
-        };
         
-        ui.menu_button(mode_text, |ui| {
-            if ui.button("Sequential").clicked() {
-                self.navigation.update_spec(NavigationSpec {
-                    mode: NavigationMode::Sequential,
-                    total_rows: context.total_rows,
-                    temporal_bounds: None,
-                    categories: None,
+        ui.horizontal(|ui| {
+            ui.label("Mode:");
+            let current_mode = context.mode.clone();
+            let mode_text = match current_mode {
+                NavigationMode::Sequential => "Sequential",
+                NavigationMode::Temporal => "Temporal",
+                NavigationMode::Categorical { .. } => "Categorical",
+            };
+            
+            egui::ComboBox::from_label("")
+                .selected_text(mode_text)
+                .show_ui(ui, |ui| {
+                    if ui.selectable_label(matches!(current_mode, NavigationMode::Sequential), "Sequential - Navigate by row index").clicked() {
+                        self.navigation.update_spec(NavigationSpec {
+                            mode: NavigationMode::Sequential,
+                            total_rows: context.total_rows,
+                            temporal_bounds: None,
+                            categories: None,
+                        });
+                    }
+                    if ui.selectable_label(matches!(current_mode, NavigationMode::Temporal), "Temporal - Navigate by time column").clicked() {
+                        self.navigation.update_spec(NavigationSpec {
+                            mode: NavigationMode::Temporal,
+                            total_rows: context.total_rows,
+                            temporal_bounds: None,
+                            categories: None,
+                        });
+                    }
+                    if ui.selectable_label(matches!(current_mode, NavigationMode::Categorical { .. }), "Categorical - Navigate by category").clicked() {
+                        self.navigation.update_spec(NavigationSpec {
+                            mode: NavigationMode::Categorical { categories: Vec::new() },
+                            total_rows: context.total_rows,
+                            temporal_bounds: None,
+                            categories: None,
+                        });
+                    }
                 });
-                ui.close_menu();
-            }
-            if ui.button("Temporal").clicked() {
-                // TODO: Need time column selection
-                ui.close_menu();
-            }
-            if ui.button("Categorical").clicked() {
-                // TODO: Need category column selection
-                ui.close_menu();
-            }
         });
     }
     

@@ -4,6 +4,9 @@ use crate::navigation::NavigationEngine;
 use crate::sync::SyncManager;
 use crate::events::EventBus;
 
+/// Space view identifier type
+pub type SpaceViewId = uuid::Uuid;
+
 /// The main application state
 pub struct AppState {
     /// The navigation engine
@@ -62,6 +65,16 @@ pub struct PerformanceSettings {
     
     /// Number of worker threads
     pub worker_threads: usize,
+}
+
+/// Hovered data point information
+#[derive(Debug, Clone, Default)]
+pub struct HoveredData {
+    pub x: f64,
+    pub y: f64,
+    pub column: Option<String>,
+    pub view_id: Option<SpaceViewId>,
+    pub point_index: Option<usize>,
 }
 
 impl Default for AppSettings {

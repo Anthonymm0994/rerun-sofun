@@ -7,19 +7,7 @@ use std::fmt::Debug;
 use crate::ViewerContext;
 
 /// Unique identifier for a space view
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct SpaceViewId(String);
-
-impl SpaceViewId {
-    pub fn new(name: &str) -> Self {
-        Self(name.to_string())
-    }
-    
-    /// Get the inner string
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
+pub type SpaceViewId = uuid::Uuid;
 
 /// Configuration that can be saved/loaded
 pub trait SpaceViewConfig: Send + Sync {
