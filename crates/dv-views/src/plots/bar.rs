@@ -103,6 +103,10 @@ impl BarChartView {
             (0..float_array.len()).map(|i| float_array.value(i)).collect()
         } else if let Some(int_array) = val_column.as_any().downcast_ref::<Int64Array>() {
             (0..int_array.len()).map(|i| int_array.value(i) as f64).collect()
+        } else if let Some(int_array) = val_column.as_any().downcast_ref::<arrow::array::Int32Array>() {
+            (0..int_array.len()).map(|i| int_array.value(i) as f64).collect()
+        } else if let Some(float_array) = val_column.as_any().downcast_ref::<arrow::array::Float32Array>() {
+            (0..float_array.len()).map(|i| float_array.value(i) as f64).collect()
         } else {
             return None;
         };

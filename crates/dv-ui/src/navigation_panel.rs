@@ -107,7 +107,30 @@ impl NavigationPanel {
     fn show_playback_controls(&mut self, ui: &mut egui::Ui) {
         let mut time_control = self.time_control.write();
         
-        ui.style_mut().spacing.button_padding = Vec2::new(8.0, 4.0);
+        ui.style_mut().spacing.button_padding = Vec2::new(6.0, 4.0);
+        ui.style_mut().spacing.item_spacing = Vec2::new(4.0, 0.0);
+        
+        // Skip to start
+        let skip_start = ui.add_sized(
+            [28.0, 28.0],
+            egui::Button::new(egui::RichText::new("⏮").size(16.0))
+                .fill(Color32::from_gray(40))
+        );
+        if skip_start.on_hover_text("Skip to start").clicked() {
+            let _ = self.navigation.seek_to(NavigationPosition::Sequential(0));
+            time_control.playing = false;
+        }
+        
+        // Step backward
+        let step_back = ui.add_sized(
+            [28.0, 28.0],
+            egui::Button::new(egui::RichText::new("◀").size(14.0))
+                .fill(Color32::from_gray(40))
+        );
+        if step_back.on_hover_text("Step backward (Left Arrow)").clicked() {
+            let _ = self.navigation.previous();
+            time_control.playing = false;
+        }
         
         // Play/pause button with better visual
         let (play_icon, hover_text) = if time_control.playing { 
@@ -117,30 +140,39 @@ impl NavigationPanel {
         };
         
         let play_button = ui.add_sized(
-            [32.0, 24.0],
-            egui::Button::new(egui::RichText::new(play_icon).size(16.0))
+            [36.0, 28.0],
+            egui::Button::new(egui::RichText::new(play_icon).size(18.0))
+                .fill(if time_control.playing { 
+                    Color32::from_rgb(220, 80, 80)  // Softer red for pause
+                } else { 
+                    Color32::from_rgb(76, 175, 80)  // Professional green for play
+                })
         );
         if play_button.on_hover_text(hover_text).clicked() {
             time_control.playing = !time_control.playing;
         }
         
-        // Step backward
-        let step_back = ui.add_sized(
-            [24.0, 24.0],
-            egui::Button::new(egui::RichText::new("⏮").size(14.0))
-        );
-        if step_back.on_hover_text("Step backward (Left Arrow)").clicked() {
-            let _ = self.navigation.previous();
-            time_control.playing = false;
-        }
-        
         // Step forward
         let step_forward = ui.add_sized(
-            [24.0, 24.0],
-            egui::Button::new(egui::RichText::new("⏭").size(14.0))
+            [28.0, 28.0],
+            egui::Button::new(egui::RichText::new("▶").size(14.0))
+                .fill(Color32::from_gray(40))
         );
         if step_forward.on_hover_text("Step forward (Right Arrow)").clicked() {
             let _ = self.navigation.next();
+            time_control.playing = false;
+        }
+        
+        // Skip to end
+        let nav_ctx = self.navigation.get_context();
+        let skip_end = ui.add_sized(
+            [28.0, 28.0],
+            egui::Button::new(egui::RichText::new("⏭").size(16.0))
+                .fill(Color32::from_gray(40))
+        );
+        if skip_end.on_hover_text("Skip to end").clicked() {
+            let end_pos = nav_ctx.total_rows.saturating_sub(1);
+            let _ = self.navigation.seek_to(NavigationPosition::Sequential(end_pos));
             time_control.playing = false;
         }
         

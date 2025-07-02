@@ -136,6 +136,14 @@ impl HistogramView {
             (0..int_array.len()).filter_map(|i| {
                 if int_array.is_null(i) { None } else { Some(int_array.value(i) as f64) }
             }).collect()
+        } else if let Some(int_array) = column.as_any().downcast_ref::<arrow::array::Int32Array>() {
+            (0..int_array.len()).filter_map(|i| {
+                if int_array.is_null(i) { None } else { Some(int_array.value(i) as f64) }
+            }).collect()
+        } else if let Some(float_array) = column.as_any().downcast_ref::<arrow::array::Float32Array>() {
+            (0..float_array.len()).filter_map(|i| {
+                if float_array.is_null(i) { None } else { Some(float_array.value(i) as f64) }
+            }).collect()
         } else {
             return None;
         };

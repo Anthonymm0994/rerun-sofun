@@ -105,12 +105,23 @@ impl LinePlotView {
         let data_source = ctx.data_source.read();
         let data_source = data_source.as_ref()?;
         
-        // Get current navigation position
-        let nav_pos = ctx.navigation.get_context().position.clone();
+        // Get navigation context
+        let nav_context = ctx.navigation.get_context();
         
-        // Query data at current position
+        // Fetch a range of data (all data for now)
+        let total_rows = nav_context.total_rows;
+        let range_size = total_rows.min(10000); // Limit to 10k points for performance
+        let start_row = 0;
+        
+        // Create a navigation range to fetch data
+        let range = dv_core::navigation::NavigationRange {
+            start: dv_core::navigation::NavigationPosition::Sequential(start_row),
+            end: dv_core::navigation::NavigationPosition::Sequential(start_row + range_size),
+        };
+        
+        // Fetch data using query_range
         let batch = ctx.runtime_handle.block_on(
-            data_source.query_at(&nav_pos)
+            data_source.query_range(&range)
         ).ok()?;
         
         // Extract X values
@@ -152,6 +163,10 @@ impl LinePlotView {
             float_array.values().to_vec()
         } else if let Some(int_array) = array.as_any().downcast_ref::<Int64Array>() {
             int_array.values().iter().map(|&v| v as f64).collect()
+        } else if let Some(int_array) = array.as_any().downcast_ref::<arrow::array::Int32Array>() {
+            int_array.values().iter().map(|&v| v as f64).collect()
+        } else if let Some(float_array) = array.as_any().downcast_ref::<arrow::array::Float32Array>() {
+            float_array.values().iter().map(|&v| v as f64).collect()
         } else {
             Vec::new()
         }

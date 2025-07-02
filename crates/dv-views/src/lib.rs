@@ -11,7 +11,7 @@ pub use space_view::{SpaceView, SpaceViewId, SpaceViewConfig, SelectionState};
 pub use viewport::{Viewport, GridLayoutConfig, GridCell};
 pub use time_series_view::{TimeSeriesView, TimeSeriesConfig};
 pub use tables::{TableView, TableConfig};
-pub use plots::{ScatterPlotView, ScatterPlotConfig, BarChartView, BarChartConfig};
+pub use plots::*;  // Export all plot types
 pub use stats::SummaryStatsView;
 
 use std::sync::Arc;

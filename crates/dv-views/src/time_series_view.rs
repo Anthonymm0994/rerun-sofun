@@ -110,10 +110,6 @@ impl TimeSeriesView {
         // Use the runtime from the viewer context - CRITICAL FIX
         let schema = ctx.runtime_handle.block_on(data_source.schema());
         
-        // Find X column in schema fields
-        let x_column = self.config.x_column.as_ref()?;
-        let x_field = schema.fields().iter().find(|f| f.name() == x_column)?;
-        
         if self.config.y_columns.is_empty() {
             return None;
         }
@@ -133,23 +129,49 @@ impl TimeSeriesView {
         let data = ctx.runtime_handle.block_on(data_source.query_range(&range)).ok()?;
         
         // Extract X values
-        let x_values = match x_field.data_type() {
-            arrow::datatypes::DataType::Float64 => {
-                let array = data.column_by_name(x_column)?
-                    .as_any()
-                    .downcast_ref::<Float64Array>()?;
-                (0..array.len()).map(|i| array.value(i)).collect::<Vec<_>>()
+        let (x_values, x_column_name) = if let Some(x_column) = &self.config.x_column {
+            // Use specified column if available
+            if let Some(x_field) = schema.fields().iter().find(|f| f.name() == x_column) {
+                let x_vals = match x_field.data_type() {
+                    arrow::datatypes::DataType::Float64 => {
+                        let array = data.column_by_name(x_column)?
+                            .as_any()
+                            .downcast_ref::<Float64Array>()?;
+                        (0..array.len()).map(|i| array.value(i)).collect::<Vec<_>>()
+                    }
+                    arrow::datatypes::DataType::Int64 => {
+                        let array = data.column_by_name(x_column)?
+                            .as_any()
+                            .downcast_ref::<Int64Array>()?;
+                        (0..array.len()).map(|i| array.value(i) as f64).collect::<Vec<_>>()
+                    }
+                    arrow::datatypes::DataType::Int32 => {
+                        let array = data.column_by_name(x_column)?
+                            .as_any()
+                            .downcast_ref::<arrow::array::Int32Array>()?;
+                        (0..array.len()).map(|i| array.value(i) as f64).collect::<Vec<_>>()
+                    }
+                    arrow::datatypes::DataType::Float32 => {
+                        let array = data.column_by_name(x_column)?
+                            .as_any()
+                            .downcast_ref::<arrow::array::Float32Array>()?;
+                        (0..array.len()).map(|i| array.value(i) as f64).collect::<Vec<_>>()
+                    }
+                    _ => {
+                        // For other types, use row index as X
+                        (0..data.num_rows()).map(|i| (start_row + i) as f64).collect::<Vec<_>>()
+                    }
+                };
+                (x_vals, x_column.clone())
+            } else {
+                // Column not found, use row index
+                let x_vals = (0..data.num_rows()).map(|i| (start_row + i) as f64).collect::<Vec<_>>();
+                (x_vals, "Row Index".to_string())
             }
-            arrow::datatypes::DataType::Int64 => {
-                let array = data.column_by_name(x_column)?
-                    .as_any()
-                    .downcast_ref::<Int64Array>()?;
-                (0..array.len()).map(|i| array.value(i) as f64).collect::<Vec<_>>()
-            }
-            _ => {
-                // For other types, use row index as X
-                (0..data.num_rows()).map(|i| (start_row + i) as f64).collect::<Vec<_>>()
-            }
+        } else {
+            // No column specified, use row index
+            let x_vals = (0..data.num_rows()).map(|i| (start_row + i) as f64).collect::<Vec<_>>();
+            (x_vals, "Row Index".to_string())
         };
         
         // Extract Y series
@@ -179,6 +201,28 @@ impl TimeSeriesView {
                             continue;
                         }
                     }
+                    arrow::datatypes::DataType::Int32 => {
+                        if let Some(array) = data.column_by_name(y_column) {
+                            if let Some(int_array) = array.as_any().downcast_ref::<arrow::array::Int32Array>() {
+                                (0..int_array.len()).map(|i| int_array.value(i) as f64).collect::<Vec<_>>()
+                            } else {
+                                continue;
+                            }
+                        } else {
+                            continue;
+                        }
+                    }
+                    arrow::datatypes::DataType::Float32 => {
+                        if let Some(array) = data.column_by_name(y_column) {
+                            if let Some(float_array) = array.as_any().downcast_ref::<arrow::array::Float32Array>() {
+                                (0..float_array.len()).map(|i| float_array.value(i) as f64).collect::<Vec<_>>()
+                            } else {
+                                continue;
+                            }
+                        } else {
+                            continue;
+                        }
+                    }
                     _ => continue,
                 };
                 
@@ -197,7 +241,7 @@ impl TimeSeriesView {
         Some(PlotData {
             x_values,
             series,
-            x_column: x_column.clone(),
+            x_column: x_column_name,
         })
     }
 }

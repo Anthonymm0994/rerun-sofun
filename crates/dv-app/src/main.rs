@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 use parking_lot::RwLock;
-use eframe::{egui::{self, Context, Window, ScrollArea, Ui, Vec2, Color32, Pos2, Rounding, Stroke}, Frame};
+use eframe::egui::{self, Ui, Vec2, Color32, Rounding, Stroke};
 use tracing::{info, error};
 use uuid::Uuid;
 
@@ -620,26 +620,21 @@ impl FrogApp {
                     ui.menu_button(
                         egui::RichText::new("View").color(Color32::WHITE).size(14.0),
                         |ui| {
-                            if ui.button(
-                                egui::RichText::new("🔍 Create Custom Views...").color(Color32::WHITE)
-                            ).on_hover_text("Choose what to explore from the loaded data").clicked() {
-                                if let Some(data_source) = &*self.viewer_context.data_source.read() {
-                                    let schema = self.runtime.block_on(data_source.schema());
-                                    self.view_builder = Some(ViewBuilderDialog::new(schema));
+                            // Only show Dashboard Builder if data is loaded
+                            let has_data = self.viewer_context.data_source.read().is_some();
+                            
+                            ui.add_enabled_ui(has_data, |ui| {
+                                if ui.button(
+                                    egui::RichText::new("🎨 Dashboard Builder...").color(if has_data { Color32::WHITE } else { Color32::from_gray(140) })
+                                ).on_hover_text(if has_data { "Build custom dashboards from your data (Press B)" } else { "Load data first to build dashboards" }).clicked() {
+                                    if let Some(data_source) = &*self.viewer_context.data_source.read() {
+                                        let schema = self.runtime.block_on(data_source.schema());
+                                        info!("Creating ViewBuilderDialog from menu");
+                                        self.view_builder = Some(ViewBuilderDialog::new(schema));
+                                    }
+                                    ui.close_menu();
                                 }
-                                ui.close_menu();
-                            }
-                            
-                            ui.separator();
-                            
-                            // Toggle summary stats window
-                            if ui.button(
-                                egui::RichText::new(if self.show_summary_stats { "📊 Hide Summary Stats" } else { "📊 Show Summary Stats" })
-                                    .color(Color32::WHITE)
-                            ).on_hover_text("Toggle floating summary statistics window (Press S)").clicked() {
-                                self.show_summary_stats = !self.show_summary_stats;
-                                ui.close_menu();
-                            }
+                            });
                             
                             ui.separator();
                             
@@ -657,19 +652,7 @@ impl FrogApp {
                                 ui.close_menu();
                             }
                             
-                            ui.separator();
-                            
-                            if ui.button(
-                                egui::RichText::new("🗑️ Clear All Views").color(Color32::WHITE)
-                            ).clicked() {
-                                self.viewport = Viewport::new();
-                                // Show view builder when clearing views
-                                if let Some(data_source) = &*self.viewer_context.data_source.read() {
-                                    let schema = self.runtime.block_on(data_source.schema());
-                                    self.view_builder = Some(ViewBuilderDialog::new(schema));
-                                }
-                                ui.close_menu();
-                            }
+
                         }
                     );
                     
@@ -784,9 +767,9 @@ impl FrogApp {
         let rect = ui.available_rect_before_wrap();
         let painter = ui.painter();
         
-        // Subtle animated gradient
-        let time = ui.input(|i| i.time) as f32;
-        let _gradient_offset = (time * 0.5).sin() * 0.05;
+        // Only animate if we're actually on the welcome screen
+        let has_data = self.viewer_context.data_source.read().is_some();
+        let show_animation = !has_data && self.viewport.is_empty();
         
         painter.rect_filled(
             rect,
@@ -794,22 +777,29 @@ impl FrogApp {
             Color32::from_rgb(15, 20, 25)
         );
         
-        // Add some subtle animated circles in background
-        for i in 0..3 {
-            let offset = i as f32 * 2.0;
-            let circle_time = time * 0.3 + offset;
-            let radius = 200.0 + (circle_time.sin() * 50.0);
-            let alpha = ((circle_time * 0.5).sin() + 1.0) * 0.5 * 20.0;
+        // Add some subtle animated circles in background (only when visible)
+        if show_animation {
+            let time = ui.input(|i| i.time) as f32;
             
-            painter.circle(
-                rect.center() + Vec2::new(
-                    (circle_time * 0.7).cos() * 100.0,
-                    (circle_time * 0.5).sin() * 80.0
-                ),
-                radius,
-                Color32::from_rgba_premultiplied(50, 100, 150, alpha as u8),
-                Stroke::NONE
-            );
+            for i in 0..3 {
+                let offset = i as f32 * 2.0;
+                let circle_time = time * 0.3 + offset;
+                let radius = 200.0 + (circle_time.sin() * 50.0);
+                let alpha = ((circle_time * 0.5).sin() + 1.0) * 0.5 * 20.0;
+                
+                painter.circle(
+                    rect.center() + Vec2::new(
+                        (circle_time * 0.7).cos() * 100.0,
+                        (circle_time * 0.5).sin() * 80.0
+                    ),
+                    radius,
+                    Color32::from_rgba_premultiplied(50, 100, 150, alpha as u8),
+                    Stroke::NONE
+                );
+            }
+            
+            // Only request continuous repaint if animation is showing
+            ui.ctx().request_repaint();
         }
         
         // Center content
@@ -832,13 +822,22 @@ impl FrogApp {
                         .strong()
                 );
                 
+                // Animated subtitle with flowing colors
+                let time = ui.ctx().input(|i| i.time) as f32;
+                let color_phase = (time * 0.5).sin() * 0.5 + 0.5;
+                let subtitle_color = Color32::from_rgb(
+                    (140.0 + color_phase * 60.0) as u8,
+                    (150.0 + color_phase * 50.0) as u8,
+                    (160.0 + color_phase * 40.0) as u8,
+                );
+                
                 ui.label(
                     egui::RichText::new("Flexible Rust Overlay for Graphs")
                         .size(18.0)
-                        .color(Color32::from_gray(180))
+                        .color(subtitle_color)
                 );
                 
-                ui.add_space(40.0);
+                ui.add_space(30.0);
                 
                 // Check if we have data loaded but no views
                 let has_data = self.viewer_context.data_source.read().is_some();
@@ -894,6 +893,7 @@ impl FrogApp {
                         );
                         
                         if primary_button.clicked() || ui.input(|i| i.key_pressed(egui::Key::B)) {
+                            info!("Creating ViewBuilderDialog from welcome screen");
                             self.view_builder = Some(ViewBuilderDialog::new(schema.clone()));
                         }
                         
@@ -951,109 +951,104 @@ impl FrogApp {
                             });
                     });
                 } else {
-                    // No data loaded - show getting started options
-                    ui.label(
-                        egui::RichText::new("Welcome! Let's get started with your data.")
-                            .size(18.0)
-                            .color(Color32::from_gray(200))
-                    );
+                    // No data loaded - show the two main action buttons
+                    ui.add_space(60.0);
                     
-                    ui.add_space(30.0);
-                    
-                    // Getting started cards
+                    // Center the buttons horizontally
                     ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing = Vec2::new(20.0, 0.0);
+                        // Calculate button size and spacing
+                        let button_width = 200.0;
+                        let button_height = 60.0;
+                        let spacing = 20.0;
+                        let total_width = button_width * 2.0 + spacing;
+                        let available_width = ui.available_width();
+                        let offset = (available_width - total_width) / 2.0;
                         
-                        // Load data card
-                        ui.group(|ui| {
-                            ui.set_min_size(Vec2::new(200.0, 150.0));
-                            ui.vertical_centered(|ui| {
-                                ui.add_space(10.0);
-                                ui.label(egui::RichText::new("📂").size(32.0));
-                                ui.add_space(10.0);
-                                ui.label(egui::RichText::new("Load Data").size(16.0).strong());
-                                ui.add_space(5.0);
-                                ui.label(egui::RichText::new("CSV or SQLite").size(12.0).color(Color32::from_gray(160)));
-                                ui.add_space(10.0);
-                                if ui.button("Open File").clicked() {
-                                    if let Some(paths) = rfd::FileDialog::new()
-                                        .add_filter("Data Files", &["csv", "db", "sqlite", "sqlite3"])
-                                        .pick_files()
-                                    {
-                                        if paths.len() == 1 {
-                                            let path = &paths[0];
-                                            if path.extension().map_or(false, |ext| ext == "csv") {
-                                                self.open_csv_file(path.clone());
-                                            } else {
-                                                self.open_sqlite_file(path.clone());
-                                            }
-                                        } else if paths.len() > 1 {
-                                            self.open_multiple_csv_files(paths);
+                        // Add left spacing to center the buttons
+                        ui.add_space(offset);
+                        
+                        ui.spacing_mut().item_spacing = Vec2::new(spacing, 0.0);
+                        
+                        // Green demo button
+                        let demo_response = ui.add_sized(
+                            [button_width, button_height],
+                            egui::Button::new(
+                                egui::RichText::new("🎮 Demo Mode")
+                                    .size(20.0)
+                                    .color(Color32::WHITE)
+                                    .strong()
+                            )
+                            .fill(Color32::from_rgb(76, 175, 80))  // Green
+                            .rounding(Rounding::same(8.0))
+                        );
+                        
+                        if demo_response.clicked() || ui.input(|i| i.key_pressed(egui::Key::D)) {
+                            self.demo_overlay.show = true;
+                        }
+                        
+                        demo_response.on_hover_text("Explore example datasets (Press D)");
+                        
+                        // Blue load data button - using vertical layout for subtitle
+                        ui.allocate_ui(Vec2::new(button_width, button_height), |ui| {
+                            let load_response = ui.add_sized(
+                                ui.available_size(),
+                                egui::Button::new("")
+                                    .fill(Color32::from_rgb(33, 150, 243))  // Blue
+                                    .rounding(Rounding::same(8.0))
+                            );
+                            
+                            // Draw text on top of button
+                            if ui.is_rect_visible(load_response.rect) {
+                                let text_pos = load_response.rect.center() - Vec2::new(0.0, 8.0);
+                                ui.painter().text(
+                                    text_pos,
+                                    egui::Align2::CENTER_CENTER,
+                                    "📂 Open File",
+                                    egui::FontId::new(20.0, egui::FontFamily::Proportional),
+                                    Color32::WHITE,
+                                );
+                                let subtitle_pos = load_response.rect.center() + Vec2::new(0.0, 12.0);
+                                ui.painter().text(
+                                    subtitle_pos,
+                                    egui::Align2::CENTER_CENTER,
+                                    "(CSV or SQLite)",
+                                    egui::FontId::new(14.0, egui::FontFamily::Proportional),
+                                    Color32::from_rgba_unmultiplied(255, 255, 255, 200),
+                                );
+                            }
+                            
+                            if load_response.clicked() {
+                                if let Some(paths) = rfd::FileDialog::new()
+                                    .add_filter("Data Files", &["csv", "db", "sqlite", "sqlite3"])
+                                    .pick_files()
+                                {
+                                    if paths.len() == 1 {
+                                        let path = &paths[0];
+                                        if path.extension().map_or(false, |ext| ext == "csv") {
+                                            self.open_csv_file(path.clone());
+                                        } else {
+                                            self.open_sqlite_file(path.clone());
                                         }
+                                    } else if paths.len() > 1 {
+                                        self.open_multiple_csv_files(paths);
                                     }
                                 }
-                            });
-                        });
-                        
-                        // Demo mode card
-                        ui.group(|ui| {
-                            ui.set_min_size(Vec2::new(200.0, 150.0));
-                            ui.vertical_centered(|ui| {
-                                ui.add_space(10.0);
-                                ui.label(egui::RichText::new("🎮").size(32.0));
-                                ui.add_space(10.0);
-                                ui.label(egui::RichText::new("Demo Mode").size(16.0).strong());
-                                ui.add_space(5.0);
-                                ui.label(egui::RichText::new("Example datasets").size(12.0).color(Color32::from_gray(160)));
-                                ui.add_space(10.0);
-                                if ui.button("Try Demo").clicked() || ui.input(|i| i.key_pressed(egui::Key::D)) {
-                                    self.demo_overlay.show = true;
-                                }
-                            });
-                        });
-                        
-                        // Help card
-                        ui.group(|ui| {
-                            ui.set_min_size(Vec2::new(200.0, 150.0));
-                            ui.vertical_centered(|ui| {
-                                ui.add_space(10.0);
-                                ui.label(egui::RichText::new("❓").size(32.0));
-                                ui.add_space(10.0);
-                                ui.label(egui::RichText::new("Learn More").size(16.0).strong());
-                                ui.add_space(5.0);
-                                ui.label(egui::RichText::new("Shortcuts & tips").size(12.0).color(Color32::from_gray(160)));
-                                ui.add_space(10.0);
-                                if ui.button("View Help").clicked() {
-                                    // TODO: Show help dialog
-                                }
-                            });
+                            }
+                            
+                            load_response.on_hover_text("Browse for data files (Ctrl+O)");
                         });
                     });
                 }
                 
-                ui.add_space(50.0);
+                // Add space before the bottom section - moved up a bit more
+                ui.add_space(available_size.y * 0.08);
                 
-                // Keyboard shortcuts hint
-                ui.separator();
-                ui.add_space(10.0);
-                
+                // Tagline at the bottom
                 ui.label(
-                    egui::RichText::new("Keyboard Shortcuts")
-                        .color(Color32::from_gray(140))
-                        .size(14.0)
+                    egui::RichText::new("🐸 Hop through your data with ease")
+                        .size(16.0)
+                        .color(Color32::from_gray(200))
                 );
-                
-                ui.add_space(5.0);
-                
-                ui.columns(2, |columns| {
-                    columns[0].label("D - Demo Mode");
-                    columns[0].label("Ctrl+O - Open File");
-                    columns[0].label("Space - Play/Pause");
-                    
-                    columns[1].label("B - Dashboard Builder");
-                    columns[1].label("H - Home");
-                    columns[1].label("R - Reset Zoom");
-                });
             });
         });
     }
@@ -1323,8 +1318,13 @@ impl FrogApp {
 
 impl eframe::App for FrogApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // Request continuous repaint for smooth animation
-        ctx.request_repaint();
+        // Only request continuous repaint when needed
+        let has_data = self.viewer_context.data_source.read().is_some();
+        let on_welcome_screen = !has_data && self.viewport.is_empty();
+        
+        if on_welcome_screen || self.demo_overlay.show {
+            ctx.request_repaint();
+        }
         
         // ALWAYS show menu bar first, regardless of state
         self.handle_menu(ctx);
@@ -1393,6 +1393,7 @@ impl eframe::App for FrogApp {
             if i.key_pressed(egui::Key::B) && !i.modifiers.ctrl {
                 if let Some(data_source) = &*self.viewer_context.data_source.read() {
                     let schema = self.runtime.block_on(data_source.schema());
+                    info!("Creating ViewBuilderDialog from B key");
                     self.view_builder = Some(ViewBuilderDialog::new(schema));
                 }
             }
@@ -1475,12 +1476,38 @@ impl eframe::App for FrogApp {
         // Check if we have data loaded
         let has_data = self.viewer_context.data_source.read().is_some();
         
-        // Check if we should show view builder dialog
+        // Handle view builder dialog FIRST - if it's active, show it and return early
+        if let Some(ref mut builder) = self.view_builder {
+            if let Some((views, nav_mode)) = builder.show_dialog(ctx) {
+                // Update navigation mode
+                let nav_spec = NavigationSpec {
+                    mode: nav_mode,
+                    total_rows: self.viewer_context.navigation.get_context().total_rows,
+                    temporal_bounds: None,
+                    categories: None,
+                };
+                self.viewer_context.navigation.update_spec(nav_spec);
+                
+                // Create views
+                self.viewport.create_grid_layout(views);
+                
+                // Clear dialog
+                self.view_builder = None;
+            }
+            
+            // If view builder is shown, don't show anything else
+            return;
+        }
+        
+        // Check if we should show view builder dialog automatically
         if has_data && self.viewport.is_empty() && self.view_builder.is_none() && !self.demo_mode {
             // Data loaded but no views created - show view builder
             if let Some(data_source) = &*self.viewer_context.data_source.read() {
                 let schema = self.runtime.block_on(data_source.schema());
                 self.view_builder = Some(ViewBuilderDialog::new(schema));
+                // Return early to show it on next frame
+                ctx.request_repaint();
+                return;
             }
         }
         
@@ -1538,26 +1565,6 @@ impl eframe::App for FrogApp {
             }
         }
         
-        // Handle view builder dialog
-        if let Some(ref mut builder) = self.view_builder {
-            if let Some((views, nav_mode)) = builder.show_dialog(ctx) {
-                // Update navigation mode
-                let nav_spec = NavigationSpec {
-                    mode: nav_mode,
-                    total_rows: self.viewer_context.navigation.get_context().total_rows,
-                    temporal_bounds: None,
-                    categories: None,
-                };
-                self.viewer_context.navigation.update_spec(nav_spec);
-                
-                // Create views
-                self.viewport.create_grid_layout(views);
-                
-                // Clear dialog
-                self.view_builder = None;
-            }
-        }
-        
         // Show floating summary stats window if enabled
         if self.show_summary_stats {
             self.show_summary_stats_window(ctx);
@@ -1593,12 +1600,30 @@ impl eframe::App for FrogApp {
                             .outer_margin(0.0)
                     )
                     .show(ctx, |ui| {
-                        // Create a temporary navigation panel for this frame
-                        let mut nav_panel = dv_ui::NavigationPanel::new(
-                            self.viewer_context.navigation.clone(),
-                            self.viewer_context.time_control.clone()
-                        );
-                        nav_panel.ui(ui, &self.viewer_context);
+                        ui.horizontal(|ui| {
+                            // Create a temporary navigation panel for this frame
+                            let mut nav_panel = dv_ui::NavigationPanel::new(
+                                self.viewer_context.navigation.clone(),
+                                self.viewer_context.time_control.clone()
+                            );
+                            nav_panel.ui(ui, &self.viewer_context);
+                            
+                            // Add summary stats toggle at the right side
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                ui.style_mut().spacing.button_padding = Vec2::new(8.0, 4.0);
+                                
+                                let stats_button = ui.add(
+                                    egui::SelectableLabel::new(
+                                        self.show_summary_stats,
+                                        egui::RichText::new("📊 Summary Stats")
+                                            .size(14.0)
+                                    )
+                                );
+                                if stats_button.on_hover_text("Toggle summary statistics window (Press S)").clicked() {
+                                    self.show_summary_stats = !self.show_summary_stats;
+                                }
+                            });
+                        });
                     });
             }
             
