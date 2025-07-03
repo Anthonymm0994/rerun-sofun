@@ -575,7 +575,7 @@ impl ViewBuilderDialog {
     
     /// Show the plot configuration panel
     fn show_plot_configurator(&mut self, ui: &mut Ui) {
-        // Templates section
+        // Templates section at the top
         ui.heading("📋 Quick Start Templates");
         ui.add_space(8.0);
         
@@ -587,31 +587,31 @@ impl ViewBuilderDialog {
                 ui.add_enabled_ui(is_compatible, |ui| {
                     let response = ui.add(
                         egui::Button::new("")
-                            .min_size(Vec2::new(ui.available_width(), 60.0))
+                            .min_size(Vec2::new(ui.available_width(), 50.0))
                             .fill(if is_compatible { Color32::from_gray(30) } else { Color32::from_gray(25) })
                     );
                     
                     // Draw custom content on top of button
                     let rect = response.rect;
                     ui.painter().text(
-                        rect.left_center() + Vec2::new(20.0, -10.0),
+                        rect.left_center() + Vec2::new(15.0, -8.0),
                         Align2::LEFT_CENTER,
                         template.icon,
-                        egui::FontId::proportional(20.0),
+                        egui::FontId::proportional(18.0),
                         Color32::from_gray(200)
                     );
                     ui.painter().text(
-                        rect.left_center() + Vec2::new(50.0, -10.0),
+                        rect.left_center() + Vec2::new(45.0, -8.0),
                         Align2::LEFT_CENTER,
                         &template.name,
-                        egui::FontId::proportional(14.0),
+                        egui::FontId::proportional(13.0),
                         Color32::WHITE
                     );
                     ui.painter().text(
-                        rect.left_center() + Vec2::new(50.0, 10.0),
+                        rect.left_center() + Vec2::new(45.0, 8.0),
                         Align2::LEFT_CENTER,
                         &template.description,
-                        egui::FontId::proportional(11.0),
+                        egui::FontId::proportional(10.0),
                         Color32::from_gray(160)
                     );
                     
@@ -619,7 +619,7 @@ impl ViewBuilderDialog {
                         template_idx = Some(idx);
                     }
                 });
-                ui.add_space(4.0);
+                ui.add_space(3.0);
             }
             template_idx
         };
@@ -632,102 +632,158 @@ impl ViewBuilderDialog {
         ui.separator();
         ui.add_space(12.0);
         
-        // Plot type selection
-        ui.heading("📊 Add New Plot");
-        ui.add_space(8.0);
-        
-        ui.label(egui::RichText::new("Step 1: Choose plot type").size(12.0).color(Color32::from_gray(180)));
-        ui.add_space(8.0);
-        
-        // Basic plots
-        ui.label(egui::RichText::new("Basic Plots").size(12.0).strong());
-        ui.add_space(4.0);
-        
-        ui.vertical(|ui| {
-            self.show_plot_type_button(ui, "📈", "Time Series", PlotType::TimeSeries);
-            self.show_plot_type_button(ui, "📉", "Line Plot", PlotType::Line);
-            self.show_plot_type_button(ui, "🎯", "Scatter", PlotType::Scatter);
-            self.show_plot_type_button(ui, "📊", "Bar Chart", PlotType::BarChart);
-            self.show_plot_type_button(ui, "📊", "Histogram", PlotType::Histogram);
-            self.show_plot_type_button(ui, "📋", "Table", PlotType::Table);
-        });
-        
-        ui.add_space(12.0);
-        
-        // Statistical plots
-        ui.label(egui::RichText::new("Statistical Plots").size(12.0).strong());
-        ui.add_space(4.0);
-        
-        ui.vertical(|ui| {
-            self.show_plot_type_button(ui, "📦", "Box Plot", PlotType::BoxPlot);
-            self.show_plot_type_button(ui, "🎻", "Violin Plot", PlotType::ViolinPlot);
-            self.show_plot_type_button(ui, "🔥", "Heatmap", PlotType::Heatmap);
-            self.show_plot_type_button(ui, "🎯", "Correlation", PlotType::CorrelationMatrix);
-            self.show_plot_type_button(ui, "🔔", "Distribution", PlotType::Distribution);
-            self.show_plot_type_button(ui, "⚠️", "Anomaly Detection", PlotType::AnomalyDetection);
-        });
-        
-        ui.add_space(12.0);
-        
-        // Advanced plots
-        ui.label(egui::RichText::new("Advanced Plots").size(12.0).strong());
-        ui.add_space(4.0);
-        
-        ui.vertical(|ui| {
-            self.show_plot_type_button(ui, "🎲", "3D Scatter", PlotType::Scatter3D);
-            self.show_plot_type_button(ui, "🏔️", "3D Surface", PlotType::Surface3D);
-            self.show_plot_type_button(ui, "🌈", "Parallel Coords", PlotType::ParallelCoordinates);
-            self.show_plot_type_button(ui, "🎯", "Radar Chart", PlotType::RadarChart);
-        });
-        
-        // Show configuration panel if a plot type is selected
-        if self.plot_config_state.selected_plot_type.is_some() {
-            ui.add_space(16.0);
-            ui.separator();
-            ui.add_space(12.0);
-            
-            ui.label(egui::RichText::new("Step 2: Configure columns").size(12.0).color(Color32::from_gray(180)));
-            ui.add_space(8.0);
-            
-            ui.group(|ui| {
-                ui.set_min_width(ui.available_width());
-                self.show_plot_configuration(ui);
+        // Two-column layout for plot selection and configuration
+        ui.horizontal(|ui| {
+            // Left column: Plot type selection (narrower)
+            ui.vertical(|ui| {
+                ui.set_min_width(140.0);
+                ui.set_max_width(140.0);
+                
+                ui.heading("📊 Plot Types");
+                ui.add_space(4.0);
+                
+                // Basic plots
+                ui.label(egui::RichText::new("Basic").size(11.0).strong().color(Color32::from_gray(180)));
+                ui.add_space(2.0);
+                
+                self.show_plot_type_button_compact(ui, "📈", "Time Series", PlotType::TimeSeries);
+                self.show_plot_type_button_compact(ui, "📉", "Line", PlotType::Line);
+                self.show_plot_type_button_compact(ui, "🎯", "Scatter", PlotType::Scatter);
+                self.show_plot_type_button_compact(ui, "📊", "Bar Chart", PlotType::BarChart);
+                self.show_plot_type_button_compact(ui, "📊", "Histogram", PlotType::Histogram);
+                self.show_plot_type_button_compact(ui, "📋", "Table", PlotType::Table);
+                
+                ui.add_space(6.0);
+                ui.label(egui::RichText::new("Statistical").size(11.0).strong().color(Color32::from_gray(180)));
+                ui.add_space(2.0);
+                
+                self.show_plot_type_button_compact(ui, "📦", "Box Plot", PlotType::BoxPlot);
+                self.show_plot_type_button_compact(ui, "🎻", "Violin", PlotType::ViolinPlot);
+                self.show_plot_type_button_compact(ui, "🔥", "Heatmap", PlotType::Heatmap);
+                self.show_plot_type_button_compact(ui, "🎯", "Correlation", PlotType::CorrelationMatrix);
+                self.show_plot_type_button_compact(ui, "🔔", "Distribution", PlotType::Distribution);
+                self.show_plot_type_button_compact(ui, "⚠️", "Anomaly", PlotType::AnomalyDetection);
+                
+                ui.add_space(6.0);
+                ui.label(egui::RichText::new("Advanced").size(11.0).strong().color(Color32::from_gray(180)));
+                ui.add_space(2.0);
+                
+                self.show_plot_type_button_compact(ui, "🎲", "3D Scatter", PlotType::Scatter3D);
+                self.show_plot_type_button_compact(ui, "🏔️", "3D Surface", PlotType::Surface3D);
+                self.show_plot_type_button_compact(ui, "🌈", "Parallel", PlotType::ParallelCoordinates);
+                self.show_plot_type_button_compact(ui, "🎯", "Radar", PlotType::RadarChart);
             });
             
-            ui.add_space(12.0);
+            ui.separator();
             
-            // Add button - only enabled if configuration is valid
-            let add_button = egui::Button::new(
-                egui::RichText::new("➕ Add to Dashboard")
-                    .size(14.0)
-                    .color(Color32::WHITE)
-            )
-            .fill(if self.plot_config_state.is_valid { 
-                Color32::from_rgb(76, 175, 80) 
-            } else { 
-                Color32::from_gray(60) 
-            })
-            .min_size(Vec2::new(ui.available_width(), 36.0));
-            
-            let response = ui.add_enabled(self.plot_config_state.is_valid, add_button);
-            
-            if response.clicked() {
-                self.add_configured_plot();
-            }
-            
-            if !self.plot_config_state.is_valid {
-                response.on_hover_text("Please configure all required columns");
-            }
-        }
+            // Right column: Configuration (wider)
+            ui.vertical(|ui| {
+                ui.set_min_width(180.0);
+                
+                if let Some(plot_type) = &self.plot_config_state.selected_plot_type {
+                    ui.heading("⚙️ Configuration");
+                    ui.add_space(4.0);
+                    
+                    // Show plot type name
+                    let plot_name = match plot_type {
+                        PlotType::TimeSeries => "Time Series",
+                        PlotType::Line => "Line Plot",
+                        PlotType::Scatter => "Scatter Plot",
+                        PlotType::BarChart => "Bar Chart",
+                        PlotType::Histogram => "Histogram",
+                        PlotType::Table => "Data Table",
+                        PlotType::BoxPlot => "Box Plot",
+                        PlotType::ViolinPlot => "Violin Plot",
+                        PlotType::Heatmap => "Heatmap",
+                        PlotType::AnomalyDetection => "Anomaly Detection",
+                        PlotType::CorrelationMatrix => "Correlation Matrix",
+                        PlotType::Scatter3D => "3D Scatter",
+                        PlotType::Surface3D => "3D Surface",
+                        PlotType::ParallelCoordinates => "Parallel Coordinates",
+                        PlotType::RadarChart => "Radar Chart",
+                        PlotType::Distribution => "Distribution",
+                        _ => "Custom Plot",
+                    };
+                    
+                    ui.label(egui::RichText::new(plot_name).size(13.0).strong().color(Color32::from_rgb(76, 175, 80)));
+                    ui.add_space(8.0);
+                    
+                    // Configuration form
+                    egui::ScrollArea::vertical()
+                        .max_height(300.0)
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| {
+                            self.show_plot_configuration_compact(ui);
+                        });
+                    
+                    ui.add_space(8.0);
+                    
+                    // Add button
+                    let add_button = egui::Button::new(
+                        egui::RichText::new("➕ Add to Dashboard")
+                            .size(13.0)
+                            .color(Color32::WHITE)
+                    )
+                    .fill(if self.plot_config_state.is_valid { 
+                        Color32::from_rgb(76, 175, 80) 
+                    } else { 
+                        Color32::from_gray(60) 
+                    })
+                    .min_size(Vec2::new(ui.available_width(), 32.0));
+                    
+                    let response = ui.add_enabled(self.plot_config_state.is_valid, add_button);
+                    
+                    if response.clicked() {
+                        self.add_configured_plot();
+                    }
+                    
+                    if !self.plot_config_state.is_valid {
+                        response.on_hover_text("Please configure all required columns");
+                    }
+                } else {
+                    // No plot selected - show instructions
+                    ui.heading("⚙️ Configuration");
+                    ui.add_space(8.0);
+                    
+                    ui.label(egui::RichText::new("Select a plot type from the left to configure columns and add it to your dashboard.")
+                        .size(12.0)
+                        .color(Color32::from_gray(160)));
+                    
+                    ui.add_space(12.0);
+                    
+                    // Show available columns summary
+                    ui.label(egui::RichText::new("Available Columns:").size(12.0).strong());
+                    ui.add_space(4.0);
+                    
+                    if !self.columns.numeric.is_empty() {
+                        ui.label(egui::RichText::new(format!("📊 {} numeric columns", self.columns.numeric.len()))
+                            .size(11.0)
+                            .color(Color32::from_rgb(76, 175, 80)));
+                    }
+                    
+                    if !self.columns.temporal.is_empty() {
+                        ui.label(egui::RichText::new(format!("⏰ {} temporal columns", self.columns.temporal.len()))
+                            .size(11.0)
+                            .color(Color32::from_rgb(33, 150, 243)));
+                    }
+                    
+                    if !self.columns.categorical.is_empty() {
+                        ui.label(egui::RichText::new(format!("🏷️ {} categorical columns", self.columns.categorical.len()))
+                            .size(11.0)
+                            .color(Color32::from_rgb(255, 152, 0)));
+                    }
+                }
+            });
+        });
     }
     
-    /// Show a plot type selection button
-    fn show_plot_type_button(&mut self, ui: &mut Ui, icon: &str, name: &str, plot_type: PlotType) {
+    /// Show a compact plot type selection button
+    fn show_plot_type_button_compact(&mut self, ui: &mut Ui, icon: &str, name: &str, plot_type: PlotType) {
         let is_selected = self.plot_config_state.selected_plot_type.as_ref() == Some(&plot_type);
         
         let button_text = format!("{} {}", icon, name);
         let button = egui::Button::new(button_text)
-            .min_size(Vec2::new(ui.available_width(), 30.0))
+            .min_size(Vec2::new(ui.available_width(), 24.0))
             .selected(is_selected)
             .fill(if is_selected { Color32::from_gray(45) } else { Color32::from_gray(30) });
         
@@ -825,7 +881,206 @@ impl ViewBuilderDialog {
         }
     }
     
-    /// Show plot configuration UI
+    /// Show plot configuration UI (compact version)
+    fn show_plot_configuration_compact(&mut self, ui: &mut Ui) {
+        let mut config = self.plot_config_state.config.clone();
+        
+        match &mut config {
+            ViewConfig::TimeSeries { title, x_column, y_columns } => {
+                ui.horizontal(|ui| {
+                    ui.label("Title:");
+                    ui.text_edit_singleline(title);
+                });
+                
+                ui.add_space(4.0);
+                
+                ui.label("X-Axis (optional):");
+                let current_x = x_column.as_ref().map(|s| s.as_str()).unwrap_or("Auto (Row Index)");
+                egui::ComboBox::from_id_source("config_ts_x")
+                    .selected_text(current_x)
+                    .width(ui.available_width())
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(x_column, None, "Auto (Row Index)");
+                        for col in &self.columns.temporal {
+                            ui.selectable_value(x_column, Some(col.name.clone()), &col.name);
+                        }
+                        for col in &self.columns.numeric {
+                            ui.selectable_value(x_column, Some(col.name.clone()), &col.name);
+                        }
+                    });
+                
+                ui.add_space(4.0);
+                ui.label("Y-Axis (select one or more):");
+                
+                let mut any_selected = false;
+                for col in &self.columns.numeric {
+                    let mut selected = y_columns.contains(&col.name);
+                    if ui.checkbox(&mut selected, &col.name).changed() {
+                        if selected {
+                            if !y_columns.contains(&col.name) {
+                                y_columns.push(col.name.clone());
+                            }
+                        } else {
+                            y_columns.retain(|c| c != &col.name);
+                        }
+                    }
+                    if selected {
+                        any_selected = true;
+                    }
+                }
+                
+                self.plot_config_state.is_valid = any_selected;
+            }
+            
+            ViewConfig::Scatter { title, x_column, y_column, color_column } => {
+                ui.horizontal(|ui| {
+                    ui.label("Title:");
+                    ui.text_edit_singleline(title);
+                });
+                
+                ui.add_space(4.0);
+                
+                ui.label("X-Axis:");
+                egui::ComboBox::from_id_source("config_scatter_x")
+                    .selected_text(if x_column.is_empty() { "Select..." } else { x_column.as_str() })
+                    .width(ui.available_width())
+                    .show_ui(ui, |ui| {
+                        for col in &self.columns.numeric {
+                            ui.selectable_value(x_column, col.name.clone(), &col.name);
+                        }
+                    });
+                
+                ui.add_space(4.0);
+                
+                ui.label("Y-Axis:");
+                egui::ComboBox::from_id_source("config_scatter_y")
+                    .selected_text(if y_column.is_empty() { "Select..." } else { y_column.as_str() })
+                    .width(ui.available_width())
+                    .show_ui(ui, |ui| {
+                        for col in &self.columns.numeric {
+                            ui.selectable_value(y_column, col.name.clone(), &col.name);
+                        }
+                    });
+                
+                ui.add_space(4.0);
+                
+                ui.label("Color By (optional):");
+                let current_color = color_column.as_ref().map(|s| s.as_str()).unwrap_or("None");
+                egui::ComboBox::from_id_source("config_scatter_color")
+                    .selected_text(current_color)
+                    .width(ui.available_width())
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(color_column, None, "None");
+                        for col in &self.columns.categorical {
+                            ui.selectable_value(color_column, Some(col.name.clone()), &col.name);
+                        }
+                    });
+                
+                self.plot_config_state.is_valid = !x_column.is_empty() && !y_column.is_empty();
+            }
+            
+            ViewConfig::BarChart { title, category_column, value_column } => {
+                ui.horizontal(|ui| {
+                    ui.label("Title:");
+                    ui.text_edit_singleline(title);
+                });
+                
+                ui.add_space(4.0);
+                
+                ui.label("Category:");
+                egui::ComboBox::from_id_source("config_bar_cat")
+                    .selected_text(if category_column.is_empty() { "Select..." } else { category_column.as_str() })
+                    .width(ui.available_width())
+                    .show_ui(ui, |ui| {
+                        for col in &self.columns.categorical {
+                            ui.selectable_value(category_column, col.name.clone(), &col.name);
+                        }
+                        for col in &self.columns.numeric {
+                            ui.selectable_value(category_column, col.name.clone(), &col.name);
+                        }
+                    });
+                
+                ui.add_space(4.0);
+                
+                ui.label("Value:");
+                egui::ComboBox::from_id_source("config_bar_val")
+                    .selected_text(if value_column.is_empty() { "Select..." } else { value_column.as_str() })
+                    .width(ui.available_width())
+                    .show_ui(ui, |ui| {
+                        for col in &self.columns.numeric {
+                            ui.selectable_value(value_column, col.name.clone(), &col.name);
+                        }
+                    });
+                
+                self.plot_config_state.is_valid = !category_column.is_empty() && !value_column.is_empty();
+            }
+            
+            ViewConfig::Histogram { title, column } => {
+                ui.horizontal(|ui| {
+                    ui.label("Title:");
+                    ui.text_edit_singleline(title);
+                });
+                
+                ui.add_space(4.0);
+                
+                ui.label("Column:");
+                egui::ComboBox::from_id_source("config_hist")
+                    .selected_text(if column.is_empty() { "Select..." } else { column.as_str() })
+                    .width(ui.available_width())
+                    .show_ui(ui, |ui| {
+                        for col in &self.columns.numeric {
+                            ui.selectable_value(column, col.name.clone(), &col.name);
+                        }
+                    });
+                
+                self.plot_config_state.is_valid = !column.is_empty();
+            }
+            
+            ViewConfig::Table { title, columns } => {
+                ui.horizontal(|ui| {
+                    ui.label("Title:");
+                    ui.text_edit_singleline(title);
+                });
+                
+                ui.add_space(4.0);
+                
+                ui.label("Columns (optional, all if none):");
+                ui.horizontal(|ui| {
+                    if ui.small_button("All").clicked() {
+                        columns.clear();
+                        columns.extend(self.columns.all.iter().map(|c| c.name.clone()));
+                    }
+                    if ui.small_button("Clear").clicked() {
+                        columns.clear();
+                    }
+                });
+                
+                for col in &self.columns.all {
+                    let mut selected = columns.contains(&col.name);
+                    if ui.checkbox(&mut selected, &col.name).changed() {
+                        if selected {
+                            if !columns.contains(&col.name) {
+                                columns.push(col.name.clone());
+                            }
+                        } else {
+                            columns.retain(|c| c != &col.name);
+                        }
+                    }
+                }
+                
+                self.plot_config_state.is_valid = true; // Table is always valid
+            }
+            
+            _ => {
+                ui.label("Configuration for this plot type coming soon...");
+                self.plot_config_state.is_valid = false;
+            }
+        }
+        
+        self.plot_config_state.config = config;
+    }
+    
+    /// Show plot configuration UI (original version)
     fn show_plot_configuration(&mut self, ui: &mut Ui) {
         let mut config = self.plot_config_state.config.clone();
         
