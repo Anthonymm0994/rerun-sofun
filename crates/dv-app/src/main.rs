@@ -1971,9 +1971,13 @@ impl eframe::App for FrogApp {
                 self.viewport.ui(ui, &self.viewer_context);
             });
         } else {
-            // Show empty viewport if no data is loaded
+            // Show welcome screen when no data is loaded
             egui::CentralPanel::default().show(ctx, |ui| {
-                self.viewport.ui(ui, &self.viewer_context);
+                if self.viewport.is_empty() {
+                    self.show_welcome_screen(ui);
+                } else {
+                    self.viewport.ui(ui, &self.viewer_context);
+                }
             });
         }
     }
