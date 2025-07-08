@@ -50,6 +50,10 @@ impl PolarPlot {
         }
     }
     
+    pub fn config_mut(&mut self) -> &mut PolarPlotConfig {
+        &mut self.config
+    }
+    
     pub fn ui(&mut self, ui: &mut Ui, viewer_context: &ViewerContext) {
         // Simple configuration - just angles in degrees
         ui.checkbox(&mut self.config.angle_in_degrees, "Angles in degrees");

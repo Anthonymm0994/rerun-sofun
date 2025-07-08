@@ -105,17 +105,17 @@ pub fn menu_bar(ctx: &Context, app_state: &mut AppState, viewer_context: Option<
                     let data_sources = viewer_ctx.data_sources.read();
                     if !data_sources.is_empty() {
                         ui.label(format!("{} source(s) loaded", data_sources.len()));
-                        ui.separator();
-                    }
-                    
-                    // Show navigation mode
+                    ui.separator();
+                }
+                
+                // Show navigation mode
                     let context = viewer_ctx.navigation.get_context();
-                    let mode_text = match context.mode {
-                        dv_core::NavigationMode::Temporal => "⏱ Time",
-                        dv_core::NavigationMode::Sequential => "📊 Rows",
-                        dv_core::NavigationMode::Categorical { .. } => "📝 Categories",
-                    };
-                    ui.label(mode_text);
+                let mode_text = match context.mode {
+                    dv_core::NavigationMode::Temporal => "⏱ Time",
+                    dv_core::NavigationMode::Sequential => "📊 Rows",
+                    dv_core::NavigationMode::Categorical { .. } => "📝 Categories",
+                };
+                ui.label(mode_text);
                 }
             });
         });

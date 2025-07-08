@@ -16,6 +16,7 @@ use super::utils::colors::{ColorScheme, viridis_color, plasma_color, diverging_c
 /// Geographic plot configuration
 #[derive(Debug, Clone)]
 pub struct GeoPlotConfig {
+    pub data_source_id: Option<String>,
     pub lat_column: String,
     pub lon_column: String,
     pub value_column: Option<String>,
@@ -62,6 +63,7 @@ pub enum GeoVizType {
 impl Default for GeoPlotConfig {
     fn default() -> Self {
         Self {
+            data_source_id: None,
             lat_column: String::new(),
             lon_column: String::new(),
             value_column: None,
@@ -494,12 +496,25 @@ impl SpaceView for GeoPlot {
     fn display_name(&self) -> &str { &self.title }
     fn view_type(&self) -> &str { "GeoPlotView" }
     
+    fn set_data_source(&mut self, source_id: String) {
+        self.config.data_source_id = Some(source_id);
+        self.cached_data = None; // Clear cache when source changes
+    }
+    
+    fn data_source_id(&self) -> Option<&str> {
+        self.config.data_source_id.as_deref()
+    }
+    
     fn ui(&mut self, ctx: &ViewerContext, ui: &mut Ui) {
         // Update data if needed
         if self.cached_data.is_none() {
             let data_sources = ctx.data_sources.read();
 
-            let data_source = data_sources.values().next();
+            let data_source = if let Some(source_id) = &self.config.data_source_id {
+                data_sources.get(source_id)
+            } else {
+                data_sources.values().next()
+            };
             if let Some(source) = data_source.as_ref() {
                 let nav_pos = ctx.navigation.get_context().position.clone();
                 if let Ok(batch) = ctx.runtime_handle.block_on(source.query_at(&nav_pos)) {
@@ -550,6 +565,7 @@ impl SpaceView for GeoPlot {
     
     fn save_config(&self) -> Value {
         json!({
+            "data_source_id": self.config.data_source_id,
             "lat_column": self.config.lat_column,
             "lon_column": self.config.lon_column,
             "value_column": self.config.value_column,
@@ -574,6 +590,9 @@ impl SpaceView for GeoPlot {
     }
     
     fn load_config(&mut self, config: Value) {
+        if let Some(data_source_id) = config.get("data_source_id").and_then(|v| v.as_str()) {
+            self.config.data_source_id = Some(data_source_id.to_string());
+        }
         if let Some(lat) = config.get("lat_column").and_then(|v| v.as_str()) {
             self.config.lat_column = lat.to_string();
         }

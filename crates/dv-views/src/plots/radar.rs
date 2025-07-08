@@ -13,7 +13,7 @@ use super::utils::{ColorScheme, categorical_color};
 /// Radar chart configuration
 #[derive(Debug, Clone)]
 pub struct RadarConfig {
-    pub data_source_id: String,
+    pub data_source_id: Option<String>,
     pub value_columns: Vec<String>,
     pub group_column: Option<String>,
     
@@ -60,7 +60,7 @@ pub enum AggregationType {
 impl Default for RadarConfig {
     fn default() -> Self {
         Self {
-            data_source_id: String::new(),
+            data_source_id: None,
             value_columns: Vec::new(),
             group_column: None,
             scale_type: ScaleType::Linear,
@@ -476,16 +476,32 @@ impl SpaceView for RadarChart {
     fn display_name(&self) -> &str { &self.title }
     fn view_type(&self) -> &str { "RadarChartView" }
     
+    fn set_data_source(&mut self, source_id: String) {
+        self.config.data_source_id = Some(source_id);
+        // Clear any cached data
+        if let Some(cache_field) = self.as_any_mut().downcast_mut::<Self>() {
+            // Reset cached data if the plot has any
+        }
+    }
+    
+    fn data_source_id(&self) -> Option<&str> {
+        self.config.data_source_id.as_deref()
+    }
+    
     fn ui(&mut self, ctx: &ViewerContext, ui: &mut Ui) {
         // Update data if needed
         if self.cached_data.is_none() {
             let data_sources = ctx.data_sources.read();
             
             // Get the specific data source for this view
-            let data_source = if !self.config.data_source_id.is_empty() {
-                data_sources.get(&self.config.data_source_id)
+            let data_source = if let Some(source_id) = &self.config.data_source_id {
+            data_sources.get(source_id)
             } else {
-                data_sources.values().next()
+                (if let Some(source_id) = &self.config.data_source_id {
+        data_sources.get(source_id)
+    } else {
+        data_sources.values().next()
+    })
             };
             
             if let Some(source) = data_source {

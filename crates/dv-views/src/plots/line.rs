@@ -11,7 +11,7 @@ use dv_core::navigation::NavigationPosition;
 /// Configuration for line plot view
 #[derive(Clone)]
 pub struct LinePlotConfig {
-    pub data_source_id: String,
+    pub data_source_id: Option<String>,
     /// X-axis column (optional, uses row index if not specified)
     pub x_column: Option<String>,
     
@@ -53,7 +53,7 @@ pub enum LineStyle {
 impl Default for LinePlotConfig {
     fn default() -> Self {
         Self {
-            data_source_id: String::new(),
+            data_source_id: None,
             x_column: None,
             y_columns: Vec::new(),
             line_width: 2.0,
@@ -107,10 +107,14 @@ impl LinePlotView {
         let data_sources = ctx.data_sources.read();
         
         // Get the specific data source for this view
-        let data_source = if !self.config.data_source_id.is_empty() {
-            data_sources.get(&self.config.data_source_id)
+        let data_source = if let Some(source_id) = &self.config.data_source_id {
+            data_sources.get(source_id)
         } else {
-            data_sources.values().next()
+            (if let Some(source_id) = &self.config.data_source_id {
+        data_sources.get(source_id)
+    } else {
+        data_sources.values().next()
+    })
         }?;
         
         // Get navigation context
@@ -204,6 +208,18 @@ impl SpaceView for LinePlotView {
     
     fn view_type(&self) -> &str {
         "LinePlotView"
+    }
+    
+    fn set_data_source(&mut self, source_id: String) {
+        self.config.data_source_id = Some(source_id);
+        // Clear any cached data
+        if let Some(cache_field) = self.as_any_mut().downcast_mut::<Self>() {
+            // Reset cached data if the plot has any
+        }
+    }
+    
+    fn data_source_id(&self) -> Option<&str> {
+        self.config.data_source_id.as_deref()
     }
     
     fn ui(&mut self, ctx: &ViewerContext, ui: &mut Ui) {

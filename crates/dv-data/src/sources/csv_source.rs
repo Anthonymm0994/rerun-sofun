@@ -97,8 +97,8 @@ impl CsvSource {
                     
                     // Store sample rows for type detection (up to MAX_SAMPLE_ROWS)
                     if sample_rows.len() < MAX_SAMPLE_ROWS {
-                        sample_rows.push(record.iter().map(|s| s.to_string()).collect::<Vec<_>>());
-                    }
+                    sample_rows.push(record.iter().map(|s| s.to_string()).collect::<Vec<_>>());
+                }
                     
                     // Track byte offsets every CHUNK_SIZE rows for efficient seeking
                     if (idx + 1) % CHUNK_SIZE == 0 {
@@ -299,81 +299,81 @@ impl CsvSource {
     /// Read a chunk directly from file
     fn read_chunk_from_file(path: &Path, schema: Arc<Schema>, start_row: usize, num_rows: usize) -> Result<RecordBatch, DataError> {
         let file = File::open(path)?;
-        let reader = BufReader::new(file);
-        let mut csv_reader = ReaderBuilder::new()
-            .has_headers(true)
-            .from_reader(reader);
-        
-        // Skip to start row
+            let reader = BufReader::new(file);
+            let mut csv_reader = ReaderBuilder::new()
+                .has_headers(true)
+                .from_reader(reader);
+            
+            // Skip to start row
         for _ in 0..=start_row {  // +1 for header
-            csv_reader.records().next();
-        }
-        
-        // Read the requested rows
-        let mut columns: Vec<ArrayRef> = Vec::new();
-        let mut row_data: Vec<Vec<String>> = Vec::new();
-        
-        for (i, result) in csv_reader.records().enumerate() {
-            if i >= num_rows {
-                break;
+                csv_reader.records().next();
             }
             
-            let record = result?;
-            row_data.push(record.iter().map(|s| s.to_string()).collect());
-        }
-        
-        // Build arrow arrays for each column
-        for (col_idx, field) in schema.fields().iter().enumerate() {
-            let array: ArrayRef = match field.data_type() {
-                DataType::Int64 => {
-                    let mut builder = Int64Builder::new();
-                    for row in &row_data {
-                        if let Some(value) = row.get(col_idx) {
-                            if value.is_empty() {
-                                builder.append_null();
-                            } else if let Ok(v) = value.parse::<i64>() {
-                                builder.append_value(v);
+            // Read the requested rows
+            let mut columns: Vec<ArrayRef> = Vec::new();
+            let mut row_data: Vec<Vec<String>> = Vec::new();
+            
+            for (i, result) in csv_reader.records().enumerate() {
+                if i >= num_rows {
+                    break;
+                }
+                
+                let record = result?;
+                row_data.push(record.iter().map(|s| s.to_string()).collect());
+            }
+            
+            // Build arrow arrays for each column
+            for (col_idx, field) in schema.fields().iter().enumerate() {
+                let array: ArrayRef = match field.data_type() {
+                    DataType::Int64 => {
+                        let mut builder = Int64Builder::new();
+                        for row in &row_data {
+                            if let Some(value) = row.get(col_idx) {
+                                if value.is_empty() {
+                                    builder.append_null();
+                                } else if let Ok(v) = value.parse::<i64>() {
+                                    builder.append_value(v);
+                                } else {
+                                    builder.append_null();
+                                }
                             } else {
                                 builder.append_null();
                             }
-                        } else {
-                            builder.append_null();
                         }
+                        Arc::new(builder.finish())
                     }
-                    Arc::new(builder.finish())
-                }
-                DataType::Float64 => {
-                    let mut builder = Float64Builder::new();
-                    for row in &row_data {
-                        if let Some(value) = row.get(col_idx) {
-                            if value.is_empty() {
-                                builder.append_null();
-                            } else if let Ok(v) = value.parse::<f64>() {
-                                builder.append_value(v);
+                    DataType::Float64 => {
+                        let mut builder = Float64Builder::new();
+                        for row in &row_data {
+                            if let Some(value) = row.get(col_idx) {
+                                if value.is_empty() {
+                                    builder.append_null();
+                                } else if let Ok(v) = value.parse::<f64>() {
+                                    builder.append_value(v);
+                                } else {
+                                    builder.append_null();
+                                }
                             } else {
                                 builder.append_null();
                             }
-                        } else {
-                            builder.append_null();
                         }
+                        Arc::new(builder.finish())
                     }
-                    Arc::new(builder.finish())
-                }
-                DataType::Utf8 => {
-                    let mut builder = StringBuilder::new();
-                    for row in &row_data {
-                        if let Some(value) = row.get(col_idx) {
-                            if value.is_empty() {
-                                builder.append_null();
+                    DataType::Utf8 => {
+                        let mut builder = StringBuilder::new();
+                        for row in &row_data {
+                            if let Some(value) = row.get(col_idx) {
+                                if value.is_empty() {
+                                    builder.append_null();
+                                } else {
+                                    builder.append_value(value);
+                                }
                             } else {
-                                builder.append_value(value);
+                                builder.append_null();
                             }
-                        } else {
-                            builder.append_null();
                         }
+                        Arc::new(builder.finish())
                     }
-                    Arc::new(builder.finish())
-                }
                 DataType::Boolean => {
                     let mut builder = BooleanBuilder::new();
                     for row in &row_data {
@@ -396,43 +396,43 @@ impl CsvSource {
                     }
                     Arc::new(builder.finish())
                 }
-                DataType::Timestamp(_, _) => {
-                    // Simple timestamp parsing - would need proper implementation
-                    let mut builder = TimestampMillisecondBuilder::new();
-                    for row in &row_data {
-                        if let Some(value) = row.get(col_idx) {
-                            if value.is_empty() {
-                                builder.append_null();
-                            } else if let Ok(v) = value.parse::<i64>() {
-                                builder.append_value(v);
+                    DataType::Timestamp(_, _) => {
+                        // Simple timestamp parsing - would need proper implementation
+                        let mut builder = TimestampMillisecondBuilder::new();
+                        for row in &row_data {
+                            if let Some(value) = row.get(col_idx) {
+                                if value.is_empty() {
+                                    builder.append_null();
+                                } else if let Ok(v) = value.parse::<i64>() {
+                                    builder.append_value(v);
+                                } else {
+                                    // Try parsing as date string
+                                    builder.append_null(); // TODO: Proper date parsing
+                                }
                             } else {
-                                // Try parsing as date string
-                                builder.append_null(); // TODO: Proper date parsing
+                                builder.append_null();
                             }
-                        } else {
-                            builder.append_null();
                         }
+                        Arc::new(builder.finish())
                     }
-                    Arc::new(builder.finish())
-                }
-                _ => {
-                    // Default to string
-                    let mut builder = StringBuilder::new();
-                    for row in &row_data {
-                        if let Some(value) = row.get(col_idx) {
-                            builder.append_value(value);
-                        } else {
-                            builder.append_null();
+                    _ => {
+                        // Default to string
+                        let mut builder = StringBuilder::new();
+                        for row in &row_data {
+                            if let Some(value) = row.get(col_idx) {
+                                builder.append_value(value);
+                            } else {
+                                builder.append_null();
+                            }
                         }
+                        Arc::new(builder.finish())
                     }
-                    Arc::new(builder.finish())
-                }
-            };
+                };
+                
+                columns.push(array);
+            }
             
-            columns.push(array);
-        }
-        
-        RecordBatch::try_new(schema, columns).map_err(|e| e.into())
+            RecordBatch::try_new(schema, columns).map_err(|e| e.into())
     }
 }
 

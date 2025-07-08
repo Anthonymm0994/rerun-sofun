@@ -13,6 +13,8 @@ use crate::{SpaceView, SpaceViewId, SelectionState, ViewerContext};
 /// Candlestick configuration
 #[derive(Debug, Clone)]
 pub struct CandlestickConfig {
+    pub data_source_id: Option<String>,
+    
     pub time_column: Option<String>,
     pub open_column: Option<String>,
     pub high_column: Option<String>,
@@ -39,6 +41,8 @@ pub struct CandlestickConfig {
 impl Default for CandlestickConfig {
     fn default() -> Self {
         Self {
+            data_source_id: None,
+            
             time_column: None,
             open_column: None,
             high_column: None,
@@ -468,6 +472,18 @@ impl SpaceView for CandlestickChart {
     
     fn display_name(&self) -> &str { &self.title }
     fn view_type(&self) -> &str { "CandlestickView" }
+    
+    fn set_data_source(&mut self, source_id: String) {
+        self.config.data_source_id = Some(source_id);
+        // Clear any cached data
+        if let Some(cache_field) = self.as_any_mut().downcast_mut::<Self>() {
+            // Reset cached data if the plot has any
+        }
+    }
+    
+    fn data_source_id(&self) -> Option<&str> {
+        self.config.data_source_id.as_deref()
+    }
     
     fn ui(&mut self, ctx: &ViewerContext, ui: &mut Ui) {
         // Update data if needed

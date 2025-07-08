@@ -9,7 +9,7 @@ use crate::{SpaceView, SpaceViewId, SelectionState, ViewerContext};
 /// Configuration for correlation matrix view
 #[derive(Debug, Clone)]
 pub struct CorrelationMatrixConfig {
-    pub data_source_id: String,
+    pub data_source_id: Option<String>,
     pub columns: Vec<String>,
     pub method: CorrelationMethod,
     pub show_values: bool,
@@ -26,7 +26,7 @@ pub enum CorrelationMethod {
 impl Default for CorrelationMatrixConfig {
     fn default() -> Self {
         Self {
-            data_source_id: String::new(),
+            data_source_id: None,
             columns: Vec::new(),
             method: CorrelationMethod::Pearson,
             show_values: true,
@@ -69,6 +69,18 @@ impl SpaceView for CorrelationMatrixView {
     
     fn display_name(&self) -> &str { &self.title }
     fn view_type(&self) -> &str { "CorrelationMatrixView" }
+    
+    fn set_data_source(&mut self, source_id: String) {
+        self.config.data_source_id = Some(source_id);
+        // Clear any cached data
+        if let Some(cache_field) = self.as_any_mut().downcast_mut::<Self>() {
+            // Reset cached data if the plot has any
+        }
+    }
+    
+    fn data_source_id(&self) -> Option<&str> {
+        self.config.data_source_id.as_deref()
+    }
     
     fn ui(&mut self, _ctx: &ViewerContext, ui: &mut Ui) {
         ui.centered_and_justified(|ui| {

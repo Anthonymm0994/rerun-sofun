@@ -333,6 +333,8 @@ impl FileConfigDialog {
                         if response.changed() {
                             let needs_inference = if let Some(config) = self.config_manager.configs.get_mut(&active_path) {
                                 config.header_line = header_line_display.saturating_sub(1);
+                                // Force preview reload when header line changes
+                                config.preview_lines = None;
                                 true
                             } else {
                                 false
@@ -781,6 +783,29 @@ impl FileConfigDialog {
                             
                             // Now update the config with all the types at once
                         if let Some(config) = self.config_manager.configs.get_mut(path) {
+                            // Update detected columns with new headers
+                            config.detected_columns = headers.clone();
+                            
+                            // Clear and rebuild selected columns to only include valid columns
+                            let old_selected = config.selected_columns.clone();
+                            config.selected_columns.clear();
+                            
+                            // Re-select columns that exist in the new headers
+                            for col in headers.iter() {
+                                if old_selected.contains(col) || old_selected.is_empty() {
+                                    // Keep previously selected columns or select all if none were selected
+                                    config.selected_columns.insert(col.clone());
+                                }
+                            }
+                            
+                            // If no columns were selected (all old selections invalid), select all
+                            if config.selected_columns.is_empty() {
+                                for col in headers.iter() {
+                                    config.selected_columns.insert(col.clone());
+                                }
+                            }
+                            
+                            // Update column types
                             config.column_types.clear();
                             for (header, dtype) in column_types {
                                 config.column_types.insert(header, dtype);

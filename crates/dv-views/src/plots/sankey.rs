@@ -12,6 +12,8 @@ use super::utils::{ColorScheme, categorical_color};
 /// Sankey diagram configuration
 #[derive(Debug, Clone)]
 pub struct SankeyConfig {
+    pub data_source_id: Option<String>,
+    
     pub source_column: String,
     pub target_column: String,
     pub value_column: String,
@@ -35,6 +37,8 @@ pub struct SankeyConfig {
 impl Default for SankeyConfig {
     fn default() -> Self {
         Self {
+            data_source_id: None,
+            
             source_column: String::new(),
             target_column: String::new(),
             value_column: String::new(),
@@ -543,6 +547,18 @@ impl SpaceView for SankeyDiagram {
     
     fn display_name(&self) -> &str { &self.title }
     fn view_type(&self) -> &str { "SankeyView" }
+    
+    fn set_data_source(&mut self, source_id: String) {
+        self.config.data_source_id = Some(source_id);
+        // Clear any cached data
+        if let Some(cache_field) = self.as_any_mut().downcast_mut::<Self>() {
+            // Reset cached data if the plot has any
+        }
+    }
+    
+    fn data_source_id(&self) -> Option<&str> {
+        self.config.data_source_id.as_deref()
+    }
     
     fn ui(&mut self, ctx: &ViewerContext, ui: &mut Ui) {
         // Update data if needed

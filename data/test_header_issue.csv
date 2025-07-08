@@ -1,0 +1,8 @@
+Note: This data file demonstrates header line detection
+
+id,name,value,category
+1,Item A,23.5,Type1
+2,Item B,45.7,Type2
+3,Item C,12.3,Type1
+4,Item D,67.8,Type3
+5,Item E,34.2,Type2 

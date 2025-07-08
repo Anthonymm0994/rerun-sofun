@@ -13,7 +13,7 @@ use super::utils::stats::calculate_quartiles;
 /// Configuration for violin plot view
 #[derive(Clone)]
 pub struct ViolinPlotConfig {
-    pub data_source_id: String,
+    pub data_source_id: Option<String>,
     /// Category column (X-axis)
     pub category_column: Option<String>,
     
@@ -48,7 +48,7 @@ pub struct ViolinPlotConfig {
 impl Default for ViolinPlotConfig {
     fn default() -> Self {
         Self {
-            data_source_id: String::new(),
+            data_source_id: None,
             category_column: None,
             value_column: String::new(),
             violin_width: 0.8,
@@ -104,10 +104,14 @@ impl ViolinPlotView {
         let data_sources = ctx.data_sources.read();
         
         // Get the specific data source for this view
-        let data_source = if !self.config.data_source_id.is_empty() {
-            data_sources.get(&self.config.data_source_id)
+        let data_source = if let Some(source_id) = &self.config.data_source_id {
+            data_sources.get(source_id)
         } else {
-            data_sources.values().next()
+            (if let Some(source_id) = &self.config.data_source_id {
+        data_sources.get(source_id)
+    } else {
+        data_sources.values().next()
+    })
         }?;
         
         // Get navigation context
@@ -363,6 +367,18 @@ impl SpaceView for ViolinPlotView {
     
     fn view_type(&self) -> &str {
         "ViolinPlotView"
+    }
+    
+    fn set_data_source(&mut self, source_id: String) {
+        self.config.data_source_id = Some(source_id);
+        // Clear any cached data
+        if let Some(cache_field) = self.as_any_mut().downcast_mut::<Self>() {
+            // Reset cached data if the plot has any
+        }
+    }
+    
+    fn data_source_id(&self) -> Option<&str> {
+        self.config.data_source_id.as_deref()
     }
     
     fn ui(&mut self, ctx: &ViewerContext, ui: &mut Ui) {

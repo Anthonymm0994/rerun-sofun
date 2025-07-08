@@ -12,6 +12,8 @@ use super::utils::{ColorScheme, categorical_color, diverging_color};
 /// Sunburst configuration  
 #[derive(Debug, Clone)]
 pub struct SunburstConfig {
+    pub data_source_id: Option<String>,
+    
     pub hierarchy_columns: Vec<String>,
     pub value_column: Option<String>,
     
@@ -32,6 +34,8 @@ pub struct SunburstConfig {
 impl Default for SunburstConfig {
     fn default() -> Self {
         Self {
+            data_source_id: None,
+            
             hierarchy_columns: Vec::new(),
             value_column: None,
             inner_radius_ratio: 0.3,
@@ -533,6 +537,18 @@ impl SpaceView for SunburstChart {
     
     fn display_name(&self) -> &str { &self.title }
     fn view_type(&self) -> &str { "SunburstView" }
+    
+    fn set_data_source(&mut self, source_id: String) {
+        self.config.data_source_id = Some(source_id);
+        // Clear any cached data
+        if let Some(cache_field) = self.as_any_mut().downcast_mut::<Self>() {
+            // Reset cached data if the plot has any
+        }
+    }
+    
+    fn data_source_id(&self) -> Option<&str> {
+        self.config.data_source_id.as_deref()
+    }
     
     fn ui(&mut self, ctx: &ViewerContext, ui: &mut Ui) {
         // Update data if needed

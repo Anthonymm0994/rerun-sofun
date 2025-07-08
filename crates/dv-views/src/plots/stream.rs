@@ -14,6 +14,8 @@ use super::utils::colors::{categorical_color, ColorScheme};
 /// Stream graph configuration
 #[derive(Debug, Clone)]
 pub struct StreamGraphConfig {
+    pub data_source_id: Option<String>,
+    
     pub time_column: Option<String>,
     pub value_column: Option<String>,
     pub category_column: Option<String>,
@@ -54,6 +56,8 @@ pub enum InterpolationType {
 impl Default for StreamGraphConfig {
     fn default() -> Self {
         Self {
+            data_source_id: None,
+            
             time_column: None,
             value_column: None,
             category_column: None,
@@ -127,6 +131,18 @@ impl SpaceView for StreamGraph {
     
     fn display_name(&self) -> &str { &self.title }
     fn view_type(&self) -> &str { "StreamGraphView" }
+    
+    fn set_data_source(&mut self, source_id: String) {
+        self.config.data_source_id = Some(source_id);
+        // Clear any cached data
+        if let Some(cache_field) = self.as_any_mut().downcast_mut::<Self>() {
+            // Reset cached data if the plot has any
+        }
+    }
+    
+    fn data_source_id(&self) -> Option<&str> {
+        self.config.data_source_id.as_deref()
+    }
     
     fn ui(&mut self, ctx: &ViewerContext, ui: &mut Ui) {
         ui.centered_and_justified(|ui| {

@@ -19,6 +19,8 @@ use super::utils::colors::{categorical_color, viridis_color, ColorScheme};
 /// Network graph configuration
 #[derive(Debug, Clone)]
 pub struct NetworkConfig {
+    pub data_source_id: Option<String>,
+    
     pub source_column: String,
     pub target_column: String,
     pub weight_column: Option<String>,
@@ -55,6 +57,8 @@ pub enum LayoutAlgorithm {
 impl Default for NetworkConfig {
     fn default() -> Self {
         Self {
+            data_source_id: None,
+            
             source_column: String::new(),
             target_column: String::new(),
             weight_column: None,
@@ -630,6 +634,18 @@ impl SpaceView for NetworkGraph {
     
     fn display_name(&self) -> &str { &self.title }
     fn view_type(&self) -> &str { "NetworkView" }
+    
+    fn set_data_source(&mut self, source_id: String) {
+        self.config.data_source_id = Some(source_id);
+        // Clear any cached data
+        if let Some(cache_field) = self.as_any_mut().downcast_mut::<Self>() {
+            // Reset cached data if the plot has any
+        }
+    }
+    
+    fn data_source_id(&self) -> Option<&str> {
+        self.config.data_source_id.as_deref()
+    }
     
     fn ui(&mut self, ctx: &ViewerContext, ui: &mut Ui) {
         // Update data if needed

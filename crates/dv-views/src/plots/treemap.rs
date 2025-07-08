@@ -12,6 +12,8 @@ use super::utils::{ColorScheme, categorical_color, viridis_color, plasma_color};
 /// Treemap configuration
 #[derive(Debug, Clone)]
 pub struct TreemapConfig {
+    pub data_source_id: Option<String>,
+    
     pub path_column: String,    // Hierarchical path (e.g., "A/B/C")
     pub value_column: String,   // Size of rectangles
     pub color_column: Option<String>, // Optional color mapping
@@ -47,6 +49,8 @@ pub enum TreemapLayout {
 impl Default for TreemapConfig {
     fn default() -> Self {
         Self {
+            data_source_id: None,
+            
             path_column: String::new(),
             value_column: String::new(),
             color_column: None,
@@ -717,6 +721,18 @@ impl SpaceView for Treemap {
     
     fn display_name(&self) -> &str { &self.title }
     fn view_type(&self) -> &str { "TreemapView" }
+    
+    fn set_data_source(&mut self, source_id: String) {
+        self.config.data_source_id = Some(source_id);
+        // Clear any cached data
+        if let Some(cache_field) = self.as_any_mut().downcast_mut::<Self>() {
+            // Reset cached data if the plot has any
+        }
+    }
+    
+    fn data_source_id(&self) -> Option<&str> {
+        self.config.data_source_id.as_deref()
+    }
     
     fn ui(&mut self, ctx: &ViewerContext, ui: &mut Ui) {
         // Update data if needed

@@ -15,7 +15,7 @@ use super::utils::stats::{calculate_quartiles, detect_outliers_iqr, zscore_outli
 /// Configuration for anomaly detection view
 #[derive(Clone)]
 pub struct AnomalyDetectionConfig {
-    pub data_source_id: String,
+    pub data_source_id: Option<String>,
     /// Column to analyze
     pub column: String,
     
@@ -54,7 +54,7 @@ pub enum DetectionMethod {
 impl Default for AnomalyDetectionConfig {
     fn default() -> Self {
         Self {
-            data_source_id: String::new(),
+            data_source_id: None,
             column: String::new(),
             time_column: None,
             detection_method: DetectionMethod::ZScore,
@@ -113,10 +113,14 @@ impl AnomalyDetectionView {
         let data_sources = ctx.data_sources.read();
         
         // Get the specific data source for this view
-        let data_source = if !self.config.data_source_id.is_empty() {
-            data_sources.get(&self.config.data_source_id)
+        let data_source = if let Some(source_id) = &self.config.data_source_id {
+            data_sources.get(source_id)
         } else {
-            data_sources.values().next()
+            (if let Some(source_id) = &self.config.data_source_id {
+        data_sources.get(source_id)
+    } else {
+        data_sources.values().next()
+    })
         }?;
         
         // Get navigation context
@@ -477,6 +481,18 @@ impl SpaceView for AnomalyDetectionView {
     
     fn view_type(&self) -> &str {
         "AnomalyDetectionView"
+    }
+    
+    fn set_data_source(&mut self, source_id: String) {
+        self.config.data_source_id = Some(source_id);
+        // Clear any cached data
+        if let Some(cache_field) = self.as_any_mut().downcast_mut::<Self>() {
+            // Reset cached data if the plot has any
+        }
+    }
+    
+    fn data_source_id(&self) -> Option<&str> {
+        self.config.data_source_id.as_deref()
     }
     
     fn ui(&mut self, ctx: &ViewerContext, ui: &mut Ui) {

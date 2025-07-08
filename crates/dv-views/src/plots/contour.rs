@@ -9,7 +9,7 @@ use crate::{SpaceView, SpaceViewId, SelectionState, ViewerContext};
 /// Configuration for contour plot
 #[derive(Debug, Clone)]
 pub struct ContourConfig {
-    pub data_source_id: String,
+    pub data_source_id: Option<String>,
     pub x_column: String,
     pub y_column: String,
     pub z_column: String,
@@ -20,7 +20,7 @@ pub struct ContourConfig {
 impl Default for ContourConfig {
     fn default() -> Self {
         Self {
-            data_source_id: String::new(),
+            data_source_id: None,
             x_column: String::new(),
             y_column: String::new(),
             z_column: String::new(),
@@ -63,6 +63,18 @@ impl SpaceView for ContourPlot {
     
     fn display_name(&self) -> &str { &self.title }
     fn view_type(&self) -> &str { "ContourPlot" }
+    
+    fn set_data_source(&mut self, source_id: String) {
+        self.config.data_source_id = Some(source_id);
+        // Clear any cached data
+        if let Some(cache_field) = self.as_any_mut().downcast_mut::<Self>() {
+            // Reset cached data if the plot has any
+        }
+    }
+    
+    fn data_source_id(&self) -> Option<&str> {
+        self.config.data_source_id.as_deref()
+    }
     
     fn ui(&mut self, _ctx: &ViewerContext, ui: &mut Ui) {
         ui.centered_and_justified(|ui| {

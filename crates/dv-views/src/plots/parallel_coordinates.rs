@@ -13,7 +13,7 @@ use super::utils::{ColorScheme, categorical_color, viridis_color, plasma_color};
 /// Parallel coordinates configuration
 #[derive(Debug, Clone)]
 pub struct ParallelCoordinatesConfig {
-    pub data_source_id: String,
+    pub data_source_id: Option<String>,
     pub columns: Vec<String>,
     pub color_column: Option<String>,
     pub group_column: Option<String>,
@@ -51,7 +51,7 @@ pub enum ScaleType {
 impl Default for ParallelCoordinatesConfig {
     fn default() -> Self {
         Self {
-            data_source_id: String::new(),
+            data_source_id: None,
             columns: Vec::new(),
             color_column: None,
             group_column: None,
@@ -758,12 +758,28 @@ impl SpaceView for ParallelCoordinatesPlot {
     fn display_name(&self) -> &str { &self.title }
     fn view_type(&self) -> &str { "ParallelCoordinatesView" }
     
+    fn set_data_source(&mut self, source_id: String) {
+        self.config.data_source_id = Some(source_id);
+        // Clear any cached data
+        if let Some(cache_field) = self.as_any_mut().downcast_mut::<Self>() {
+            // Reset cached data if the plot has any
+        }
+    }
+    
+    fn data_source_id(&self) -> Option<&str> {
+        self.config.data_source_id.as_deref()
+    }
+    
     fn ui(&mut self, ctx: &ViewerContext, ui: &mut Ui) {
         // Update data if needed
         if self.cached_data.is_none() {
             let data_sources = ctx.data_sources.read();
 
-            let data_source = data_sources.values().next();
+            let data_source = if let Some(source_id) = &self.config.data_source_id {
+        data_sources.get(source_id)
+    } else {
+        data_sources.values().next()
+    };
             if let Some(source) = data_source.as_ref() {
                 let nav_pos = ctx.navigation.get_context().position.clone();
                 if let Ok(batch) = ctx.runtime_handle.block_on(source.query_at(&nav_pos)) {
