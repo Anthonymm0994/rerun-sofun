@@ -168,13 +168,21 @@ impl LinePlotView {
     
     fn extract_numeric_values(array: &dyn Array) -> Vec<f64> {
         if let Some(float_array) = array.as_any().downcast_ref::<Float64Array>() {
-            float_array.values().to_vec()
+            (0..float_array.len()).filter_map(|i| {
+                if float_array.is_null(i) { None } else { Some(float_array.value(i)) }
+            }).collect()
         } else if let Some(int_array) = array.as_any().downcast_ref::<Int64Array>() {
-            int_array.values().iter().map(|&v| v as f64).collect()
+            (0..int_array.len()).filter_map(|i| {
+                if int_array.is_null(i) { None } else { Some(int_array.value(i) as f64) }
+            }).collect()
         } else if let Some(int_array) = array.as_any().downcast_ref::<arrow::array::Int32Array>() {
-            int_array.values().iter().map(|&v| v as f64).collect()
+            (0..int_array.len()).filter_map(|i| {
+                if int_array.is_null(i) { None } else { Some(int_array.value(i) as f64) }
+            }).collect()
         } else if let Some(float_array) = array.as_any().downcast_ref::<arrow::array::Float32Array>() {
-            float_array.values().iter().map(|&v| v as f64).collect()
+            (0..float_array.len()).filter_map(|i| {
+                if float_array.is_null(i) { None } else { Some(float_array.value(i) as f64) }
+            }).collect()
         } else {
             Vec::new()
         }

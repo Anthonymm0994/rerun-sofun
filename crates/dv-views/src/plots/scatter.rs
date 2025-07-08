@@ -139,28 +139,49 @@ impl ScatterPlotView {
         let y_array = batch.column_by_name(&self.config.y_column)?;
         
         let x_values: Vec<f64> = if let Some(float_array) = x_array.as_any().downcast_ref::<Float64Array>() {
-            float_array.values().to_vec()
+            (0..float_array.len()).filter_map(|i| {
+                if float_array.is_null(i) { None } else { Some(float_array.value(i)) }
+            }).collect()
         } else if let Some(int_array) = x_array.as_any().downcast_ref::<Int64Array>() {
-            int_array.values().iter().map(|&v| v as f64).collect()
+            (0..int_array.len()).filter_map(|i| {
+                if int_array.is_null(i) { None } else { Some(int_array.value(i) as f64) }
+            }).collect()
         } else if let Some(int_array) = x_array.as_any().downcast_ref::<arrow::array::Int32Array>() {
-            int_array.values().iter().map(|&v| v as f64).collect()
+            (0..int_array.len()).filter_map(|i| {
+                if int_array.is_null(i) { None } else { Some(int_array.value(i) as f64) }
+            }).collect()
         } else if let Some(float_array) = x_array.as_any().downcast_ref::<arrow::array::Float32Array>() {
-            float_array.values().iter().map(|&v| v as f64).collect()
+            (0..float_array.len()).filter_map(|i| {
+                if float_array.is_null(i) { None } else { Some(float_array.value(i) as f64) }
+            }).collect()
         } else {
             return None;
         };
         
         let y_values: Vec<f64> = if let Some(float_array) = y_array.as_any().downcast_ref::<Float64Array>() {
-            float_array.values().to_vec()
+            (0..float_array.len()).filter_map(|i| {
+                if float_array.is_null(i) { None } else { Some(float_array.value(i)) }
+            }).collect()
         } else if let Some(int_array) = y_array.as_any().downcast_ref::<Int64Array>() {
-            int_array.values().iter().map(|&v| v as f64).collect()
+            (0..int_array.len()).filter_map(|i| {
+                if int_array.is_null(i) { None } else { Some(int_array.value(i) as f64) }
+            }).collect()
         } else if let Some(int_array) = y_array.as_any().downcast_ref::<arrow::array::Int32Array>() {
-            int_array.values().iter().map(|&v| v as f64).collect()
+            (0..int_array.len()).filter_map(|i| {
+                if int_array.is_null(i) { None } else { Some(int_array.value(i) as f64) }
+            }).collect()
         } else if let Some(float_array) = y_array.as_any().downcast_ref::<arrow::array::Float32Array>() {
-            float_array.values().iter().map(|&v| v as f64).collect()
+            (0..float_array.len()).filter_map(|i| {
+                if float_array.is_null(i) { None } else { Some(float_array.value(i) as f64) }
+            }).collect()
         } else {
             return None;
         };
+        
+        // Ensure we have matching x and y values (handle case where one has more nulls)
+        let min_len = x_values.len().min(y_values.len());
+        let x_values = x_values.into_iter().take(min_len).collect::<Vec<_>>();
+        let y_values = y_values.into_iter().take(min_len).collect::<Vec<_>>();
         
         let points: Vec<(f64, f64)> = x_values.into_iter().zip(y_values).collect();
         
@@ -168,7 +189,13 @@ impl ScatterPlotView {
         let sizes = if let Some(size_col) = &self.config.size_column {
             if let Some(array) = batch.column_by_name(size_col) {
                 if let Some(float_array) = array.as_any().downcast_ref::<Float64Array>() {
-                    Some(float_array.values().iter().map(|&v| v as f32).collect())
+                    Some((0..float_array.len()).filter_map(|i| {
+                        if float_array.is_null(i) { None } else { Some(float_array.value(i) as f32) }
+                    }).collect())
+                } else if let Some(int_array) = array.as_any().downcast_ref::<Int64Array>() {
+                    Some((0..int_array.len()).filter_map(|i| {
+                        if int_array.is_null(i) { None } else { Some(int_array.value(i) as f32) }
+                    }).collect())
                 } else {
                     None
                 }

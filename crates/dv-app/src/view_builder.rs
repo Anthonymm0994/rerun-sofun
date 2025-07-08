@@ -2407,9 +2407,9 @@ impl ViewBuilderDialog {
                     views.push(Box::new(view));
                 }
                 ViewConfig::Surface3D { title, data_source_id, x_column, y_column, z_column } => {
-                    use dv_views::plots::Surface3DView;
+                    use dv_views::plots::Surface3DPlot;
                     let id = uuid::Uuid::new_v4();
-                    let mut view = Surface3DView::new(id, title.clone());
+                    let mut view = Surface3DPlot::new(id, title.clone());
                     view.config.data_source_id = Some(data_source_id.clone().unwrap_or_else(|| {
                         self.data_sources.first().map(|(id, _)| id.clone()).unwrap_or_default()
                     }));
@@ -2474,6 +2474,100 @@ impl ViewBuilderDialog {
                     view.config.x_column = x_column.clone();
                     view.config.y_column = y_column.clone();
                     view.config.z_column = z_column.clone();
+                    views.push(Box::new(view));
+                }
+                ViewConfig::Sankey { title, data_source_id, source_column, target_column, value_column } => {
+                    use dv_views::plots::SankeyDiagram;
+                    let id = uuid::Uuid::new_v4();
+                    let mut view = SankeyDiagram::new(id, title.clone());
+                    view.config.data_source_id = Some(data_source_id.clone().unwrap_or_else(|| {
+                        self.data_sources.first().map(|(id, _)| id.clone()).unwrap_or_default()
+                    }));
+                    view.config.source_column = source_column.clone();
+                    view.config.target_column = target_column.clone();
+                    view.config.value_column = value_column.clone();
+                    views.push(Box::new(view));
+                }
+                ViewConfig::Treemap { title, data_source_id, category_column, value_column } => {
+                    use dv_views::plots::Treemap;
+                    let id = uuid::Uuid::new_v4();
+                    let mut view = Treemap::new(id, title.clone());
+                    view.config.data_source_id = Some(data_source_id.clone().unwrap_or_else(|| {
+                        self.data_sources.first().map(|(id, _)| id.clone()).unwrap_or_default()
+                    }));
+                    view.config.category_column = category_column.clone();
+                    view.config.value_column = value_column.clone();
+                    views.push(Box::new(view));
+                }
+                ViewConfig::Sunburst { title, data_source_id, hierarchy_columns, value_column } => {
+                    use dv_views::plots::SunburstChart;
+                    let id = uuid::Uuid::new_v4();
+                    let mut view = SunburstChart::new(id, title.clone());
+                    view.config.data_source_id = Some(data_source_id.clone().unwrap_or_else(|| {
+                        self.data_sources.first().map(|(id, _)| id.clone()).unwrap_or_default()
+                    }));
+                    view.config.hierarchy_columns = hierarchy_columns.clone();
+                    view.config.value_column = value_column.clone();
+                    views.push(Box::new(view));
+                }
+                ViewConfig::NetworkGraph { title, data_source_id, source_column, target_column } => {
+                    use dv_views::plots::NetworkGraph;
+                    let id = uuid::Uuid::new_v4();
+                    let mut view = NetworkGraph::new(id, title.clone());
+                    view.config.data_source_id = Some(data_source_id.clone().unwrap_or_else(|| {
+                        self.data_sources.first().map(|(id, _)| id.clone()).unwrap_or_default()
+                    }));
+                    view.config.source_column = source_column.clone();
+                    view.config.target_column = target_column.clone();
+                    views.push(Box::new(view));
+                }
+                ViewConfig::TimeAnalysis { title, data_source_id, time_column, value_columns } => {
+                    use dv_views::plots::TimeAnalysisPlot;
+                    let id = uuid::Uuid::new_v4();
+                    let mut view = TimeAnalysisPlot::new(id, title.clone());
+                    view.config.data_source_id = Some(data_source_id.clone().unwrap_or_else(|| {
+                        self.data_sources.first().map(|(id, _)| id.clone()).unwrap_or_default()
+                    }));
+                    view.config.time_column = time_column.clone();
+                    view.config.value_columns = value_columns.clone();
+                    views.push(Box::new(view));
+                }
+                ViewConfig::GeoPlot { title, data_source_id, lat_column, lon_column, value_column } => {
+                    use dv_views::plots::GeoPlot;
+                    let id = uuid::Uuid::new_v4();
+                    let mut view = GeoPlot::new(id, title.clone());
+                    view.config.data_source_id = Some(data_source_id.clone().unwrap_or_else(|| {
+                        self.data_sources.first().map(|(id, _)| id.clone()).unwrap_or_default()
+                    }));
+                    view.config.lat_column = lat_column.clone();
+                    view.config.lon_column = lon_column.clone();
+                    view.config.value_column = value_column.clone();
+                    views.push(Box::new(view));
+                }
+                ViewConfig::StreamGraph { title, data_source_id, time_column, value_column, category_column } => {
+                    use dv_views::plots::StreamGraph;
+                    let id = uuid::Uuid::new_v4();
+                    let mut view = StreamGraph::new(id, title.clone());
+                    view.config.data_source_id = Some(data_source_id.clone().unwrap_or_else(|| {
+                        self.data_sources.first().map(|(id, _)| id.clone()).unwrap_or_default()
+                    }));
+                    view.config.time_column = time_column.clone();
+                    view.config.value_column = value_column.clone();
+                    view.config.category_column = category_column.clone();
+                    views.push(Box::new(view));
+                }
+                ViewConfig::CandlestickChart { title, data_source_id, time_column, open_column, high_column, low_column, close_column } => {
+                    use dv_views::plots::CandlestickChart;
+                    let id = uuid::Uuid::new_v4();
+                    let mut view = CandlestickChart::new(id, title.clone());
+                    view.config.data_source_id = Some(data_source_id.clone().unwrap_or_else(|| {
+                        self.data_sources.first().map(|(id, _)| id.clone()).unwrap_or_default()
+                    }));
+                    view.config.time_column = time_column.clone();
+                    view.config.open_column = open_column.clone();
+                    view.config.high_column = high_column.clone();
+                    view.config.low_column = low_column.clone();
+                    view.config.close_column = close_column.clone();
                     views.push(Box::new(view));
                 }
                 _ => {}

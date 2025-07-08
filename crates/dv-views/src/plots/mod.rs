@@ -57,7 +57,7 @@ pub use anomaly::{AnomalyDetectionView, AnomalyDetectionConfig};
 pub use correlation::{CorrelationMatrixView, CorrelationMatrixConfig};
 pub use distribution::{DistributionPlot, DistributionConfig};
 pub use scatter3d::{Scatter3DPlot as Scatter3DView, Scatter3DConfig};
-pub use surface3d::{Surface3DView, Surface3DConfig};
+pub use surface3d::{Surface3DPlot, Surface3DConfig};
 pub use contour::{ContourPlot, ContourConfig};
 pub use parallel_coordinates::{ParallelCoordinatesPlot as ParallelCoordinatesView, ParallelCoordinatesConfig};
 pub use radar::{RadarChart, RadarChartConfig};
@@ -68,7 +68,7 @@ pub use network::{NetworkGraph, NetworkGraphConfig};
 pub use geo::{GeoPlot, GeoPlotConfig};
 pub use time_analysis::{TimeAnalysisPlot, TimeAnalysisConfig};
 pub use candlestick::{CandlestickChart, CandlestickConfig};
-pub use stream::{StreamGraph, StreamGraphConfig};
+pub use stream::{StreamGraph, StreamConfig};
 
 // New polar plot module
 pub mod polar;

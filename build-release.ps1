@@ -43,7 +43,7 @@ if ($LASTEXITCODE -eq 0) {
     Write-Host "`n✓ Build completed successfully!" -ForegroundColor Green
     
     # Show binary location
-    $exePath = Join-Path $PWD "target\release\dv-app.exe"
+    $exePath = Join-Path $PWD "target\release\datavis.exe"
     if (Test-Path $exePath) {
         $size = (Get-Item $exePath).Length / 1MB
         Write-Host "Binary location: $exePath" -ForegroundColor Cyan
@@ -61,4 +61,5 @@ if ($LASTEXITCODE -eq 0) {
     Write-Host $output
 }
 
-Write-Host "`nDone!" -ForegroundColor Green 
+Write-Host ""
+Write-Host "Done!" -ForegroundColor Green

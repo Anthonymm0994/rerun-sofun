@@ -108,21 +108,35 @@ impl BarChartView {
         
         // Extract numeric values
         let values: Vec<f64> = if let Some(float_array) = val_column.as_any().downcast_ref::<Float64Array>() {
-            (0..float_array.len()).map(|i| float_array.value(i)).collect()
+            (0..float_array.len()).filter_map(|i| {
+                if float_array.is_null(i) { None } else { Some(float_array.value(i)) }
+            }).collect()
         } else if let Some(int_array) = val_column.as_any().downcast_ref::<Int64Array>() {
-            (0..int_array.len()).map(|i| int_array.value(i) as f64).collect()
+            (0..int_array.len()).filter_map(|i| {
+                if int_array.is_null(i) { None } else { Some(int_array.value(i) as f64) }
+            }).collect()
         } else if let Some(int_array) = val_column.as_any().downcast_ref::<arrow::array::Int32Array>() {
-            (0..int_array.len()).map(|i| int_array.value(i) as f64).collect()
+            (0..int_array.len()).filter_map(|i| {
+                if int_array.is_null(i) { None } else { Some(int_array.value(i) as f64) }
+            }).collect()
         } else if let Some(float_array) = val_column.as_any().downcast_ref::<arrow::array::Float32Array>() {
-            (0..float_array.len()).map(|i| float_array.value(i) as f64).collect()
+            (0..float_array.len()).filter_map(|i| {
+                if float_array.is_null(i) { None } else { Some(float_array.value(i) as f64) }
+            }).collect()
         } else {
             return None;
         };
         
+        // Filter out any null categories and ensure matching lengths
+        let valid_pairs: Vec<(String, f64)> = categories.into_iter()
+            .zip(values.into_iter())
+            .filter(|(cat, _)| !cat.is_empty() && cat != "null")
+            .collect();
+        
         // Group by category and sum values
         let mut category_map: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
-        for (cat, val) in categories.iter().zip(values.iter()) {
-            *category_map.entry(cat.clone()).or_insert(0.0) += val;
+        for (cat, val) in valid_pairs {
+            *category_map.entry(cat).or_insert(0.0) += val;
         }
         
         // Sort by category name

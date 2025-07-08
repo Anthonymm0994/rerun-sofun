@@ -47,6 +47,6 @@ chrono = { workspace = true }
 uuid = { version = "1.0", features = ["v4", "serde"] }
 
 [target.'cfg(windows)'.dependencies]
-winapi = { version = "0.3", features = ["wincon", "winuser"] }
+winapi = { version = "0.3", features = ["wincon", "winuser", "libloaderapi", "processthreadsapi", "winbase", "winnls", "winerror", "winnt", "impl-default"] }
 
 [dev-dependencies] 
