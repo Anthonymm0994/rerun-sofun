@@ -2,8 +2,9 @@
 
 use egui::{Ui, Color32};
 use egui_plot::{Plot, PlotPoints, Points, Legend, MarkerShape};
-use arrow::array::{Float64Array, Int64Array, Array};
+use arrow::array::{Float64Array, Int64Array, StringArray, Array};
 use serde_json::{json, Value};
+use std::collections::BTreeMap;
 
 use crate::{SpaceView, SpaceViewId, SelectionState, ViewerContext};
 use dv_core::navigation::NavigationPosition;
@@ -84,8 +85,9 @@ pub struct ScatterPlotView {
 struct ScatterData {
     points: Vec<(f64, f64)>,
     _sizes: Option<Vec<f32>>,
-    _colors: Option<Vec<Color32>>,
-    _categories: Option<Vec<String>>,
+    colors: Option<Vec<Color32>>,
+    categories: Option<Vec<String>>,
+    category_map: Option<BTreeMap<String, Color32>>,
 }
 
 impl ScatterPlotView {
@@ -102,7 +104,11 @@ impl ScatterPlotView {
     
     /// Get plot data from the current data source
     fn fetch_plot_data(&mut self, ctx: &ViewerContext) -> Option<ScatterData> {
+        tracing::info!("Fetching scatter plot data - X: '{}', Y: '{}', Color: {:?}", 
+                      self.config.x_column, self.config.y_column, self.config.color_column);
+        
         if self.config.x_column.is_empty() || self.config.y_column.is_empty() {
+            tracing::warn!("Scatter plot columns not configured");
             return None;
         }
         
@@ -110,8 +116,10 @@ impl ScatterPlotView {
         
         // Get the specific data source for this view
         let data_source = if let Some(source_id) = &self.config.data_source_id {
+            tracing::debug!("Using specific data source: {}", source_id);
             data_sources.get(source_id)
         } else {
+            tracing::debug!("Using first available data source");
             data_sources.values().next()
         }?;
         
@@ -130,60 +138,143 @@ impl ScatterPlotView {
         };
         
         // Fetch data using query_range
-        let batch = ctx.runtime_handle.block_on(
+        let batch = match ctx.runtime_handle.block_on(
             data_source.query_range(&range)
-        ).ok()?;
+        ) {
+            Ok(b) => {
+                tracing::info!("Fetched batch with {} rows", b.num_rows());
+                b
+            },
+            Err(e) => {
+                tracing::error!("Failed to fetch data: {}", e);
+                return None;
+            }
+        };
+        
+        // Log available columns
+        let schema = batch.schema();
+        let column_names: Vec<String> = schema.fields().iter().map(|f| f.name().clone()).collect();
+        tracing::debug!("Available columns in batch: {:?}", column_names);
         
         // Extract X and Y columns
-        let x_array = batch.column_by_name(&self.config.x_column)?;
-        let y_array = batch.column_by_name(&self.config.y_column)?;
-        
-        let x_values: Vec<f64> = if let Some(float_array) = x_array.as_any().downcast_ref::<Float64Array>() {
-            (0..float_array.len()).filter_map(|i| {
-                if float_array.is_null(i) { None } else { Some(float_array.value(i)) }
-            }).collect()
-        } else if let Some(int_array) = x_array.as_any().downcast_ref::<Int64Array>() {
-            (0..int_array.len()).filter_map(|i| {
-                if int_array.is_null(i) { None } else { Some(int_array.value(i) as f64) }
-            }).collect()
-        } else if let Some(int_array) = x_array.as_any().downcast_ref::<arrow::array::Int32Array>() {
-            (0..int_array.len()).filter_map(|i| {
-                if int_array.is_null(i) { None } else { Some(int_array.value(i) as f64) }
-            }).collect()
-        } else if let Some(float_array) = x_array.as_any().downcast_ref::<arrow::array::Float32Array>() {
-            (0..float_array.len()).filter_map(|i| {
-                if float_array.is_null(i) { None } else { Some(float_array.value(i) as f64) }
-            }).collect()
-        } else {
-            return None;
+        let x_array = match batch.column_by_name(&self.config.x_column) {
+            Some(arr) => {
+                tracing::debug!("Found X column '{}' with type {:?}", self.config.x_column, arr.data_type());
+                arr
+            },
+            None => {
+                tracing::error!("X column '{}' not found in batch. Available: {:?}", self.config.x_column, column_names);
+                return None;
+            }
         };
         
-        let y_values: Vec<f64> = if let Some(float_array) = y_array.as_any().downcast_ref::<Float64Array>() {
-            (0..float_array.len()).filter_map(|i| {
-                if float_array.is_null(i) { None } else { Some(float_array.value(i)) }
-            }).collect()
-        } else if let Some(int_array) = y_array.as_any().downcast_ref::<Int64Array>() {
-            (0..int_array.len()).filter_map(|i| {
-                if int_array.is_null(i) { None } else { Some(int_array.value(i) as f64) }
-            }).collect()
-        } else if let Some(int_array) = y_array.as_any().downcast_ref::<arrow::array::Int32Array>() {
-            (0..int_array.len()).filter_map(|i| {
-                if int_array.is_null(i) { None } else { Some(int_array.value(i) as f64) }
-            }).collect()
-        } else if let Some(float_array) = y_array.as_any().downcast_ref::<arrow::array::Float32Array>() {
-            (0..float_array.len()).filter_map(|i| {
-                if float_array.is_null(i) { None } else { Some(float_array.value(i) as f64) }
-            }).collect()
-        } else {
-            return None;
+        let y_array = match batch.column_by_name(&self.config.y_column) {
+            Some(arr) => {
+                tracing::debug!("Found Y column '{}' with type {:?}", self.config.y_column, arr.data_type());
+                arr
+            },
+            None => {
+                tracing::error!("Y column '{}' not found in batch", self.config.y_column);
+                return None;
+            }
         };
         
-        // Ensure we have matching x and y values (handle case where one has more nulls)
-        let min_len = x_values.len().min(y_values.len());
-        let x_values = x_values.into_iter().take(min_len).collect::<Vec<_>>();
-        let y_values = y_values.into_iter().take(min_len).collect::<Vec<_>>();
+        // Extract color categories if specified
+        let (categories, category_map) = if let Some(color_col) = &self.config.color_column {
+            if let Some(cat_array) = batch.column_by_name(color_col) {
+                tracing::debug!("Found color column '{}' with type {:?}", color_col, cat_array.data_type());
+                
+                // Extract categories
+                let cats: Vec<String> = if let Some(str_array) = cat_array.as_any().downcast_ref::<StringArray>() {
+                    (0..str_array.len()).map(|i| {
+                        if str_array.is_null(i) {
+                            "null".to_string()
+                        } else {
+                            str_array.value(i).to_string()
+                        }
+                    }).collect()
+                } else {
+                    // Try to convert other types to string
+                    (0..cat_array.len()).map(|i| {
+                        arrow::util::display::array_value_to_string(cat_array, i).unwrap_or_else(|_| "null".to_string())
+                    }).collect()
+                };
+                
+                // Create color map with stable colors
+                let mut cat_map = BTreeMap::new();
+                let unique_cats: Vec<String> = cats.iter().cloned().collect::<std::collections::HashSet<_>>().into_iter().collect();
+                for (i, cat) in unique_cats.iter().enumerate() {
+                    cat_map.insert(cat.clone(), super::utils::colors::categorical_color(i));
+                }
+                
+                (Some(cats), Some(cat_map))
+            } else {
+                tracing::warn!("Color column '{}' not found", color_col);
+                (None, None)
+            }
+        } else {
+            (None, None)
+        };
         
-        let points: Vec<(f64, f64)> = x_values.into_iter().zip(y_values).collect();
+        // Extract x, y values together with categories to maintain alignment
+        let mut points = Vec::new();
+        let mut colors = Vec::new();
+        
+        for i in 0..x_array.len().min(y_array.len()) {
+            // Get x value
+            let x_val = if let Some(float_array) = x_array.as_any().downcast_ref::<Float64Array>() {
+                if float_array.is_null(i) { continue; }
+                float_array.value(i)
+            } else if let Some(int_array) = x_array.as_any().downcast_ref::<Int64Array>() {
+                if int_array.is_null(i) { continue; }
+                int_array.value(i) as f64
+            } else if let Some(int_array) = x_array.as_any().downcast_ref::<arrow::array::Int32Array>() {
+                if int_array.is_null(i) { continue; }
+                int_array.value(i) as f64
+            } else if let Some(float_array) = x_array.as_any().downcast_ref::<arrow::array::Float32Array>() {
+                if float_array.is_null(i) { continue; }
+                float_array.value(i) as f64
+            } else {
+                continue;
+            };
+            
+            // Get y value
+            let y_val = if let Some(float_array) = y_array.as_any().downcast_ref::<Float64Array>() {
+                if float_array.is_null(i) { continue; }
+                float_array.value(i)
+            } else if let Some(int_array) = y_array.as_any().downcast_ref::<Int64Array>() {
+                if int_array.is_null(i) { continue; }
+                int_array.value(i) as f64
+            } else if let Some(int_array) = y_array.as_any().downcast_ref::<arrow::array::Int32Array>() {
+                if int_array.is_null(i) { continue; }
+                int_array.value(i) as f64
+            } else if let Some(float_array) = y_array.as_any().downcast_ref::<arrow::array::Float32Array>() {
+                if float_array.is_null(i) { continue; }
+                float_array.value(i) as f64
+            } else {
+                continue;
+            };
+            
+            points.push((x_val, y_val));
+            
+            // Get color for this point
+            if let (Some(cats), Some(cat_map)) = (&categories, &category_map) {
+                if let Some(cat) = cats.get(i) {
+                    if let Some(&color) = cat_map.get(cat) {
+                        colors.push(color);
+                    } else {
+                        colors.push(Color32::from_rgb(128, 128, 128)); // Default gray
+                    }
+                } else {
+                    colors.push(Color32::from_rgb(128, 128, 128));
+                }
+            }
+        }
+        
+        tracing::info!("Created {} scatter plot points", points.len());
+        if let Some(cat_map) = &category_map {
+            tracing::info!("Found {} categories for coloring", cat_map.len());
+        }
         
         // Extract optional size column
         let sizes = if let Some(size_col) = &self.config.size_column {
@@ -209,8 +300,9 @@ impl ScatterPlotView {
         Some(ScatterData {
             points,
             _sizes: sizes,
-            _colors: None, // TODO: Implement color mapping
-            _categories: None, // TODO: Implement category extraction
+            colors: if !colors.is_empty() { Some(colors) } else { None },
+            categories,
+            category_map,
         })
     }
 }
@@ -253,9 +345,9 @@ impl SpaceView for ScatterPlotView {
     }
     
     fn ui(&mut self, ctx: &ViewerContext, ui: &mut Ui) {
-        // Update data if navigation changed
+        // Update data if navigation changed or if we have no cached data
         let nav_pos = ctx.navigation.get_context().position.clone();
-        if self.last_navigation_pos.as_ref() != Some(&nav_pos) {
+        if self.cached_data.is_none() || self.last_navigation_pos.as_ref() != Some(&nav_pos) {
             self.cached_data = self.fetch_plot_data(ctx);
             self.last_navigation_pos = Some(nav_pos);
         }
@@ -276,26 +368,47 @@ impl SpaceView for ScatterPlotView {
                 // Scatter plots don't participate in time cursor synchronization
                 // They show independent data relationships, not time series
                 
-                // Convert points to PlotPoints
-                let plot_points: Vec<[f64; 2]> = data.points.iter()
-                    .map(|&(x, y)| [x, y])
-                    .collect();
-            
-                let points = Points::new(PlotPoints::new(plot_points.clone()))
-                    .color(Color32::from_rgb(31, 119, 180))
-                    .radius(self.config.point_radius)
-                    .shape(self.config.marker_shape)
-                    .name(&format!("{} vs {}", self.config.y_column, self.config.x_column));
-            
-                plot_ui.points(points);
+                if let (Some(colors), Some(category_map)) = (&data.colors, &data.category_map) {
+                    // Plot points grouped by category for proper legend
+                    for (category, &color) in category_map {
+                        let category_points: Vec<[f64; 2]> = data.points.iter()
+                            .zip(colors.iter())
+                            .filter(|(_, &c)| c == color)
+                            .map(|((x, y), _)| [*x, *y])
+                            .collect();
+                        
+                        if !category_points.is_empty() {
+                            let points = Points::new(PlotPoints::new(category_points))
+                                .color(color)
+                                .radius(self.config.point_radius)
+                                .shape(self.config.marker_shape)
+                                .name(category);
+                            
+                            plot_ui.points(points);
+                        }
+                    }
+                } else {
+                    // No categories, plot all points with same color
+                    let plot_points: Vec<[f64; 2]> = data.points.iter()
+                        .map(|&(x, y)| [x, y])
+                        .collect();
+                    
+                    let points = Points::new(PlotPoints::new(plot_points.clone()))
+                        .color(Color32::from_rgb(31, 119, 180))
+                        .radius(self.config.point_radius)
+                        .shape(self.config.marker_shape)
+                        .name(&format!("{} vs {}", self.config.y_column, self.config.x_column));
+                    
+                    plot_ui.points(points);
+                }
             
                 // Show hover tooltip on mouse over
                 if let Some(pointer_coord) = plot_ui.pointer_coordinate() {
                     // Find points near the hover position
                     let hover_radius = 0.5;
-                    let hover_points: Vec<(usize, [f64; 2])> = plot_points.iter()
+                    let hover_points: Vec<(usize, (f64, f64))> = data.points.iter()
                         .enumerate()
-                        .filter(|(_, [x, y])| {
+                        .filter(|(_, (x, y))| {
                             let dx = x - pointer_coord.x;
                             let dy = y - pointer_coord.y;
                             (dx * dx + dy * dy).sqrt() < hover_radius
@@ -304,9 +417,15 @@ impl SpaceView for ScatterPlotView {
                         .collect();
                     
                     // Highlight hover points
-                    for (_idx, point) in &hover_points {
-                        let highlight = Points::new(vec![*point])
-                            .color(Color32::from_rgb(255, 127, 14))
+                    for (idx, (x, y)) in &hover_points {
+                        let color = if let Some(colors) = &data.colors {
+                            colors.get(*idx).copied().unwrap_or(Color32::from_rgb(255, 127, 14))
+                        } else {
+                            Color32::from_rgb(255, 127, 14)
+                        };
+                        
+                        let highlight = Points::new(vec![[*x, *y]])
+                            .color(color)
                             .radius(self.config.point_radius * 2.0)
                             .shape(egui_plot::MarkerShape::Circle);
                         plot_ui.points(highlight);

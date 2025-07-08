@@ -227,9 +227,9 @@ impl SpaceView for LinePlotView {
     }
     
     fn ui(&mut self, ctx: &ViewerContext, ui: &mut Ui) {
-        // Update data if navigation changed
+        // Update data if navigation changed or if we have no cached data
         let nav_pos = ctx.navigation.get_context().position.clone();
-        if self.last_navigation_pos.as_ref() != Some(&nav_pos) {
+        if self.cached_data.is_none() || self.last_navigation_pos.as_ref() != Some(&nav_pos) {
             self.cached_data = self.fetch_data(ctx);
             self.last_navigation_pos = Some(nav_pos);
         }

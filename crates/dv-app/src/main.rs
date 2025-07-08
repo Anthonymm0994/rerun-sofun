@@ -573,6 +573,11 @@ impl FrogApp {
         runtime.spawn(async move {
             match dv_data::sources::ConfiguredCsvSource::new(config).await {
                 Ok(source) => {
+                    // Update navigation spec BEFORE adding the source
+                    if let Ok(spec) = source.navigation_spec().await {
+                        viewer_context.navigation.update_spec(spec);
+                    }
+                    
                     // Add to data sources map
                     viewer_context.data_sources.write().insert(
                         source_id,
@@ -606,6 +611,11 @@ impl FrogApp {
         runtime.spawn(async move {
             match SqliteSource::new(config.path, table_name).await {
                 Ok(source) => {
+                    // Update navigation spec BEFORE adding the source
+                    if let Ok(spec) = source.navigation_spec().await {
+                        viewer_context.navigation.update_spec(spec);
+                    }
+                    
                     // Add to data sources map
                     viewer_context.data_sources.write().insert(
                         source_id,
@@ -1829,10 +1839,19 @@ impl eframe::App for FrogApp {
         // Handle view builder dialog FIRST - if it's active, show it and return early
         if let Some(ref mut builder) = self.view_builder {
             if let Some((views, nav_mode)) = builder.show_dialog(ctx) {
-                // Update navigation mode
+                // Update navigation mode - get total_rows from actual data source
+                let total_rows = {
+                    let data_sources = self.viewer_context.data_sources.read();
+                    if let Some((_, source)) = data_sources.iter().next() {
+                        self.runtime.block_on(source.row_count()).unwrap_or(0)
+                    } else {
+                        0
+                    }
+                };
+                
                 let nav_spec = NavigationSpec {
                     mode: nav_mode,
-                    total_rows: self.viewer_context.navigation.get_context().total_rows,
+                    total_rows,
                     temporal_bounds: None,
                     categories: None,
                 };

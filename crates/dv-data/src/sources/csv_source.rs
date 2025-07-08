@@ -12,6 +12,7 @@ use ahash::AHashMap;
 use dv_core::navigation::{NavigationSpec, NavigationPosition, NavigationRange, NavigationMode};
 use crate::DataError;
 use crate::memory::{MemoryManager, estimate_batch_memory};
+use chrono::{DateTime, NaiveDateTime, Utc};
 
 /// Performance tuning constants
 const MAX_SAMPLE_ROWS: usize = 5000;  // Increased for better type detection
@@ -304,8 +305,8 @@ impl CsvSource {
                 .has_headers(true)
                 .from_reader(reader);
             
-            // Skip to start row
-        for _ in 0..=start_row {  // +1 for header
+            // Skip to start row (header is already consumed by has_headers(true))
+        for _ in 0..start_row {
                 csv_reader.records().next();
             }
             
@@ -397,17 +398,27 @@ impl CsvSource {
                     Arc::new(builder.finish())
                 }
                     DataType::Timestamp(_, _) => {
-                        // Simple timestamp parsing - would need proper implementation
                         let mut builder = TimestampMillisecondBuilder::new();
                         for row in &row_data {
                             if let Some(value) = row.get(col_idx) {
                                 if value.is_empty() {
                                     builder.append_null();
                                 } else if let Ok(v) = value.parse::<i64>() {
-                                    builder.append_value(v);
+                                    // Unix timestamp in seconds or milliseconds
+                                    if v > 1_000_000_000_000 {
+                                        // Milliseconds
+                                        builder.append_value(v);
+                                    } else {
+                                        // Seconds - convert to milliseconds
+                                        builder.append_value(v * 1000);
+                                    }
                                 } else {
                                     // Try parsing as date string
-                                    builder.append_null(); // TODO: Proper date parsing
+                                    let parsed = Self::parse_timestamp(value);
+                                    match parsed {
+                                        Some(ts) => builder.append_value(ts),
+                                        None => builder.append_null(),
+                                    }
                                 }
                             } else {
                                 builder.append_null();
@@ -433,6 +444,44 @@ impl CsvSource {
             }
             
             RecordBatch::try_new(schema, columns).map_err(|e| e.into())
+    }
+
+    /// Parse a timestamp string into milliseconds since epoch
+    fn parse_timestamp(value: &str) -> Option<i64> {
+        // Try common date formats
+        let formats = [
+            "%Y-%m-%d %H:%M:%S",
+            "%Y-%m-%d %H:%M:%S%.f",
+            "%Y-%m-%dT%H:%M:%S",
+            "%Y-%m-%dT%H:%M:%S%.f",
+            "%Y-%m-%dT%H:%M:%SZ",
+            "%Y-%m-%dT%H:%M:%S%.fZ",
+            "%Y/%m/%d %H:%M:%S",
+            "%d/%m/%Y %H:%M:%S",
+            "%m/%d/%Y %H:%M:%S",
+            "%Y-%m-%d",
+            "%Y/%m/%d",
+            "%d/%m/%Y",
+            "%m/%d/%Y",
+        ];
+        
+        for format in &formats {
+            if let Ok(dt) = NaiveDateTime::parse_from_str(value, format) {
+                return Some(dt.timestamp_millis());
+            }
+            // Try without time component
+            if let Ok(date) = chrono::NaiveDate::parse_from_str(value, format) {
+                let dt = date.and_hms_opt(0, 0, 0)?;
+                return Some(dt.timestamp_millis());
+            }
+        }
+        
+        // Try ISO 8601 with timezone
+        if let Ok(dt) = DateTime::parse_from_rfc3339(value) {
+            return Some(dt.timestamp_millis());
+        }
+        
+        None
     }
 }
 

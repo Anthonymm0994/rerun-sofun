@@ -329,10 +329,11 @@ impl TableView {
                             let value = arrow::util::display::array_value_to_string(column, actual_row_index).unwrap_or_default();
                             
                             // Debug: Log the raw value
-                            if value.is_empty() {
-                                tracing::warn!("Empty value at row {} col {} (field: {})", 
-                                    actual_row_index, col_idx, schema_fields[col_idx].name());
-                            }
+                            // Commented out - too verbose on every frame
+                            // if value.is_empty() {
+                            //     tracing::warn!("Empty value at row {} col {} (field: {})", 
+                            //         actual_row_index, col_idx, schema_fields[col_idx].name());
+                            // }
                             
                             // Truncate long values
                             let display_value = if value.len() > 50 {
@@ -408,9 +409,9 @@ impl SpaceView for TableView {
     
     fn ui(&mut self, ctx: &ViewerContext, ui: &mut Ui) {
         
-        // Update data if navigation changed
+        // Update data if navigation changed or if we have no cached data
         let nav_pos = ctx.navigation.get_context().position.clone();
-        if self.last_navigation_pos.as_ref() != Some(&nav_pos) {
+        if self.cached_data.is_none() || self.last_navigation_pos.as_ref() != Some(&nav_pos) {
             self.cached_data = self.fetch_data(ctx);
             self.last_navigation_pos = Some(nav_pos);
         }

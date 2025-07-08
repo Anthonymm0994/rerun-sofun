@@ -896,36 +896,42 @@ impl ViewBuilderDialog {
     
     /// Create default configuration for a plot type
     fn create_default_config(&self, plot_type: &PlotType) -> ViewConfig {
+        // Get first columns of each type for defaults
+        let first_numeric = self.columns.numeric.first().map(|c| c.name.clone()).unwrap_or_default();
+        let second_numeric = self.columns.numeric.get(1).map(|c| c.name.clone()).unwrap_or_default();
+        let first_categorical = self.columns.categorical.first().map(|c| c.name.clone()).unwrap_or_default();
+        let first_temporal = self.columns.temporal.first().map(|c| c.name.clone());
+        
         match plot_type {
             PlotType::TimeSeries => ViewConfig::TimeSeries {
                 title: "Time Series".to_string(),
                 data_source_id: self.selected_data_source.clone(),
-                x_column: None,
-                y_columns: vec![],
+                x_column: first_temporal.clone(),
+                y_columns: if !first_numeric.is_empty() { vec![first_numeric] } else { vec![] },
             },
             PlotType::Line => ViewConfig::Line {
                 title: "Line Plot".to_string(),
                 data_source_id: self.selected_data_source.clone(),
-                x_column: None,
-                y_columns: vec![],
+                x_column: first_temporal.clone().or_else(|| Some(first_numeric.clone())),
+                y_columns: if !second_numeric.is_empty() { vec![second_numeric] } else if !first_numeric.is_empty() { vec![first_numeric] } else { vec![] },
             },
             PlotType::Scatter => ViewConfig::Scatter {
                 title: "Scatter Plot".to_string(),
                 data_source_id: self.selected_data_source.clone(),
-                x_column: String::new(),
-                y_column: String::new(),
-                color_column: None,
+                x_column: first_numeric.clone(),
+                y_column: if !second_numeric.is_empty() { second_numeric.clone() } else { first_numeric.clone() },
+                color_column: if !first_categorical.is_empty() { Some(first_categorical.clone()) } else { None },
             },
             PlotType::BarChart => ViewConfig::BarChart {
                 title: "Bar Chart".to_string(),
                 data_source_id: self.selected_data_source.clone(),
-                category_column: String::new(),
-                value_column: String::new(),
+                category_column: first_categorical.clone(),
+                value_column: first_numeric.clone(),
             },
             PlotType::Histogram => ViewConfig::Histogram {
                 title: "Histogram".to_string(),
                 data_source_id: self.selected_data_source.clone(),
-                column: String::new(),
+                column: first_numeric.clone(),
             },
             PlotType::Table => ViewConfig::Table {
                 title: "Data Table".to_string(),
@@ -935,129 +941,177 @@ impl ViewBuilderDialog {
             PlotType::BoxPlot => ViewConfig::BoxPlot {
                 title: "Box Plot".to_string(),
                 data_source_id: self.selected_data_source.clone(),
-                value_column: String::new(),
-                category_column: None,
+                value_column: first_numeric.clone(),
+                category_column: if !first_categorical.is_empty() { Some(first_categorical.clone()) } else { None },
             },
             PlotType::ViolinPlot => ViewConfig::ViolinPlot {
                 title: "Violin Plot".to_string(),
                 data_source_id: self.selected_data_source.clone(),
-                value_column: String::new(),
-                category_column: None,
+                value_column: first_numeric.clone(),
+                category_column: if !first_categorical.is_empty() { Some(first_categorical.clone()) } else { None },
             },
             PlotType::Heatmap => ViewConfig::Heatmap {
                 title: "Heatmap".to_string(),
                 data_source_id: self.selected_data_source.clone(),
-                x_column: String::new(),
-                y_column: String::new(),
-                value_column: String::new(),
+                x_column: first_categorical.clone(),
+                y_column: if self.columns.categorical.len() > 1 { 
+                    self.columns.categorical[1].name.clone() 
+                } else { 
+                    first_categorical.clone() 
+                },
+                value_column: first_numeric.clone(),
             },
             PlotType::AnomalyDetection => ViewConfig::AnomalyDetection {
                 title: "Anomaly Detection".to_string(),
                 data_source_id: self.selected_data_source.clone(),
-                column: String::new(),
+                column: first_numeric.clone(),
             },
             PlotType::CorrelationMatrix => ViewConfig::CorrelationMatrix {
                 title: "Correlation Matrix".to_string(),
                 data_source_id: self.selected_data_source.clone(),
-                columns: vec![],
+                columns: self.columns.numeric.iter().take(5).map(|c| c.name.clone()).collect(),
             },
             PlotType::Scatter3D => ViewConfig::Scatter3D {
                 title: "3D Scatter".to_string(),
                 data_source_id: self.selected_data_source.clone(),
-                x_column: String::new(),
-                y_column: String::new(),
-                z_column: String::new(),
+                x_column: first_numeric.clone(),
+                y_column: if !second_numeric.is_empty() { second_numeric.clone() } else { first_numeric.clone() },
+                z_column: self.columns.numeric.get(2).map(|c| c.name.clone()).unwrap_or(first_numeric.clone()),
             },
             PlotType::Surface3D => ViewConfig::Surface3D {
                 title: "3D Surface".to_string(),
                 data_source_id: self.selected_data_source.clone(),
-                x_column: String::new(),
-                y_column: String::new(),
-                z_column: String::new(),
+                x_column: first_numeric.clone(),
+                y_column: if !second_numeric.is_empty() { second_numeric.clone() } else { first_numeric.clone() },
+                z_column: self.columns.numeric.get(2).map(|c| c.name.clone()).unwrap_or(first_numeric.clone()),
             },
             PlotType::ParallelCoordinates => ViewConfig::ParallelCoordinates {
                 title: "Parallel Coordinates".to_string(),
                 data_source_id: self.selected_data_source.clone(),
-                columns: vec![],
+                columns: self.columns.numeric.iter().take(5).map(|c| c.name.clone()).collect(),
             },
             PlotType::RadarChart => ViewConfig::RadarChart {
                 title: "Radar Chart".to_string(),
                 data_source_id: self.selected_data_source.clone(),
-                value_columns: vec![],
-                group_column: None,
+                value_columns: self.columns.numeric.iter().take(5).map(|c| c.name.clone()).collect(),
+                group_column: if !first_categorical.is_empty() { Some(first_categorical.clone()) } else { None },
             },
             PlotType::PolarPlot => ViewConfig::PolarPlot {
                 title: "Polar Plot".to_string(),
                 data_source_id: self.selected_data_source.clone(),
-                angle_column: String::new(),
-                radius_column: String::new(),
-                category_column: None,
+                angle_column: if let Some(col) = self.columns.numeric.iter().find(|c| c.name.to_lowercase().contains("angle")) {
+                    col.name.clone()
+                } else {
+                    first_numeric.clone()
+                },
+                radius_column: if let Some(col) = self.columns.numeric.iter().find(|c| c.name.to_lowercase().contains("radius")) {
+                    col.name.clone()
+                } else {
+                    if !second_numeric.is_empty() { second_numeric.clone() } else { first_numeric.clone() }
+                },
+                category_column: if !first_categorical.is_empty() { Some(first_categorical.clone()) } else { None },
             },
             PlotType::Contour => ViewConfig::Contour {
                 title: "Contour Plot".to_string(),
                 data_source_id: self.selected_data_source.clone(),
-                x_column: String::new(),
-                y_column: String::new(),
-                z_column: String::new(),
+                x_column: first_numeric.clone(),
+                y_column: if !second_numeric.is_empty() { second_numeric.clone() } else { first_numeric.clone() },
+                z_column: self.columns.numeric.get(2).map(|c| c.name.clone()).unwrap_or(first_numeric.clone()),
             },
             PlotType::Sankey => ViewConfig::Sankey {
                 title: "Sankey Diagram".to_string(),
                 data_source_id: self.selected_data_source.clone(),
-                source_column: String::new(),
-                target_column: String::new(),
-                value_column: String::new(),
+                source_column: first_categorical.clone(),
+                target_column: if self.columns.categorical.len() > 1 { 
+                    self.columns.categorical[1].name.clone() 
+                } else { 
+                    first_categorical.clone() 
+                },
+                value_column: first_numeric.clone(),
             },
             PlotType::Treemap => ViewConfig::Treemap {
                 title: "Treemap".to_string(),
                 data_source_id: self.selected_data_source.clone(),
-                category_column: String::new(),
-                value_column: String::new(),
+                category_column: first_categorical.clone(),
+                value_column: first_numeric.clone(),
             },
             PlotType::Sunburst => ViewConfig::Sunburst {
                 title: "Sunburst".to_string(),
                 data_source_id: self.selected_data_source.clone(),
-                hierarchy_columns: vec![],
-                value_column: None,
+                hierarchy_columns: self.columns.categorical.iter().take(3).map(|c| c.name.clone()).collect(),
+                value_column: if !first_numeric.is_empty() { Some(first_numeric.clone()) } else { None },
             },
             PlotType::NetworkGraph => ViewConfig::NetworkGraph {
                 title: "Network Graph".to_string(),
                 data_source_id: self.selected_data_source.clone(),
-                source_column: String::new(),
-                target_column: String::new(),
+                source_column: first_categorical.clone(),
+                target_column: if self.columns.categorical.len() > 1 { 
+                    self.columns.categorical[1].name.clone() 
+                } else { 
+                    first_categorical.clone() 
+                },
             },
             PlotType::Distribution => ViewConfig::Distribution {
                 title: "Distribution".to_string(),
                 data_source_id: self.selected_data_source.clone(),
-                column: String::new(),
+                column: first_numeric.clone(),
             },
             PlotType::TimeAnalysis => ViewConfig::TimeAnalysis {
                 title: "Time Analysis".to_string(),
                 data_source_id: self.selected_data_source.clone(),
-                time_column: String::new(),
-                value_columns: vec![],
+                time_column: first_temporal.clone().unwrap_or(first_numeric.clone()),
+                value_columns: self.columns.numeric.iter().skip(1).take(3).map(|c| c.name.clone()).collect(),
             },
             PlotType::GeoPlot => ViewConfig::GeoPlot {
                 title: "Geographic Plot".to_string(),
                 data_source_id: self.selected_data_source.clone(),
-                lat_column: String::new(),
-                lon_column: String::new(),
-                value_column: None,
+                lat_column: if let Some(col) = self.columns.numeric.iter().find(|c| c.name.to_lowercase().contains("lat")) {
+                    col.name.clone()
+                } else {
+                    first_numeric.clone()
+                },
+                lon_column: if let Some(col) = self.columns.numeric.iter().find(|c| c.name.to_lowercase().contains("lon")) {
+                    col.name.clone()
+                } else {
+                    if !second_numeric.is_empty() { second_numeric.clone() } else { first_numeric.clone() }
+                },
+                value_column: if self.columns.numeric.len() > 2 { 
+                    Some(self.columns.numeric[2].name.clone()) 
+                } else { 
+                    None 
+                },
             },
             PlotType::StreamGraph => ViewConfig::StreamGraph {
                 title: "Stream Graph".to_string(),
                 data_source_id: self.selected_data_source.clone(),
-                time_column: String::new(),
-                value_column: String::new(),
-                category_column: None,
+                time_column: first_temporal.clone().unwrap_or(first_numeric.clone()),
+                value_column: if !second_numeric.is_empty() { second_numeric.clone() } else { first_numeric.clone() },
+                category_column: if !first_categorical.is_empty() { Some(first_categorical.clone()) } else { None },
             },
             PlotType::CandlestickChart => ViewConfig::CandlestickChart {
                 title: "Candlestick Chart".to_string(),
                 data_source_id: self.selected_data_source.clone(),
-                time_column: String::new(),
-                open_column: String::new(),
-                high_column: String::new(),
-                low_column: String::new(),
-                close_column: String::new(),
+                time_column: first_temporal.clone().unwrap_or(first_numeric.clone()),
+                open_column: if let Some(col) = self.columns.numeric.iter().find(|c| c.name.to_lowercase().contains("open")) {
+                    col.name.clone()
+                } else {
+                    first_numeric.clone()
+                },
+                high_column: if let Some(col) = self.columns.numeric.iter().find(|c| c.name.to_lowercase().contains("high")) {
+                    col.name.clone()
+                } else {
+                    if !second_numeric.is_empty() { second_numeric.clone() } else { first_numeric.clone() }
+                },
+                low_column: if let Some(col) = self.columns.numeric.iter().find(|c| c.name.to_lowercase().contains("low")) {
+                    col.name.clone()
+                } else {
+                    self.columns.numeric.get(2).map(|c| c.name.clone()).unwrap_or(first_numeric.clone())
+                },
+                close_column: if let Some(col) = self.columns.numeric.iter().find(|c| c.name.to_lowercase().contains("close")) {
+                    col.name.clone()
+                } else {
+                    self.columns.numeric.get(3).map(|c| c.name.clone()).unwrap_or(first_numeric.clone())
+                },
             },
         }
     }
@@ -2495,7 +2549,7 @@ impl ViewBuilderDialog {
                     view.config.data_source_id = Some(data_source_id.clone().unwrap_or_else(|| {
                         self.data_sources.first().map(|(id, _)| id.clone()).unwrap_or_default()
                     }));
-                    view.config.category_column = category_column.clone();
+                    view.config.path_column = category_column.clone();  // Changed from category_column to path_column
                     view.config.value_column = value_column.clone();
                     views.push(Box::new(view));
                 }
@@ -2551,9 +2605,9 @@ impl ViewBuilderDialog {
                     view.config.data_source_id = Some(data_source_id.clone().unwrap_or_else(|| {
                         self.data_sources.first().map(|(id, _)| id.clone()).unwrap_or_default()
                     }));
-                    view.config.time_column = time_column.clone();
+                    view.config.x_column = time_column.clone();  // Changed from time_column to x_column
                     view.config.value_column = value_column.clone();
-                    view.config.category_column = category_column.clone();
+                    view.config.category_column = category_column.clone().unwrap_or_default();  // Handle Option<String> to String
                     views.push(Box::new(view));
                 }
                 ViewConfig::CandlestickChart { title, data_source_id, time_column, open_column, high_column, low_column, close_column } => {
@@ -2563,11 +2617,11 @@ impl ViewBuilderDialog {
                     view.config.data_source_id = Some(data_source_id.clone().unwrap_or_else(|| {
                         self.data_sources.first().map(|(id, _)| id.clone()).unwrap_or_default()
                     }));
-                    view.config.time_column = time_column.clone();
-                    view.config.open_column = open_column.clone();
-                    view.config.high_column = high_column.clone();
-                    view.config.low_column = low_column.clone();
-                    view.config.close_column = close_column.clone();
+                    view.config.time_column = Some(time_column.clone());
+                    view.config.open_column = Some(open_column.clone());
+                    view.config.high_column = Some(high_column.clone());
+                    view.config.low_column = Some(low_column.clone());
+                    view.config.close_column = Some(close_column.clone());
                     views.push(Box::new(view));
                 }
                 _ => {}

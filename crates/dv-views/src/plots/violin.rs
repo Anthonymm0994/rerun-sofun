@@ -101,12 +101,17 @@ impl ViolinPlotView {
     
     /// Fetch violin plot data
     fn fetch_data(&mut self, ctx: &ViewerContext) -> Option<ViolinData> {
+        tracing::info!("Fetching violin plot data - Value: '{}', Category: {:?}", 
+                  self.config.value_column, self.config.category_column);
+        
         let data_sources = ctx.data_sources.read();
         
         // Get the specific data source for this view
         let data_source = if let Some(source_id) = &self.config.data_source_id {
+            tracing::debug!("Using specific data source: {}", source_id);
             data_sources.get(source_id)
         } else {
+            tracing::debug!("Using first available data source");
             data_sources.values().next()
         }?;
         
@@ -119,10 +124,33 @@ impl ViolinPlotView {
             end: dv_core::navigation::NavigationPosition::Sequential(nav_context.total_rows),
         };
         
-        let data = ctx.runtime_handle.block_on(data_source.query_range(&range)).ok()?;
+        let data = match ctx.runtime_handle.block_on(data_source.query_range(&range)) {
+            Ok(d) => {
+                tracing::info!("Fetched batch with {} rows", d.num_rows());
+                d
+            },
+            Err(e) => {
+                tracing::error!("Failed to fetch data: {}", e);
+                return None;
+            }
+        };
+        
+        // Log available columns
+        let schema = data.schema();
+        let column_names: Vec<String> = schema.fields().iter().map(|f| f.name().clone()).collect();
+        tracing::debug!("Available columns in batch: {:?}", column_names);
         
         // Extract value column
-        let val_column = data.column_by_name(&self.config.value_column)?;
+        let val_column = match data.column_by_name(&self.config.value_column) {
+            Some(col) => {
+                tracing::debug!("Found value column '{}' with type {:?}", self.config.value_column, col.data_type());
+                col
+            },
+            None => {
+                tracing::error!("Value column '{}' not found in batch", self.config.value_column);
+                return None;
+            }
+        };
         let values: Vec<f64> = if let Some(float_array) = val_column.as_any().downcast_ref::<Float64Array>() {
             (0..float_array.len()).filter_map(|i| {
                 if float_array.is_null(i) { None } else { Some(float_array.value(i)) }
@@ -378,9 +406,9 @@ impl SpaceView for ViolinPlotView {
     }
     
     fn ui(&mut self, ctx: &ViewerContext, ui: &mut Ui) {
-        // Update data if navigation changed
+        // Update data if navigation changed or if we have no cached data
         let nav_pos = ctx.navigation.get_context().position.clone();
-        if self.last_navigation_pos.as_ref() != Some(&nav_pos) {
+        if self.cached_data.is_none() || self.last_navigation_pos.as_ref() != Some(&nav_pos) {
             self.cached_data = self.fetch_data(ctx);
             self.last_navigation_pos = Some(nav_pos);
         }

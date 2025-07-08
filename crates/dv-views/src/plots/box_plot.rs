@@ -99,12 +99,17 @@ impl BoxPlotView {
     
     /// Fetch box plot data
     fn fetch_data(&mut self, ctx: &ViewerContext) -> Option<Vec<BoxPlotData>> {
+        tracing::info!("Fetching box plot data - Value: '{}', Category: {:?}", 
+                  self.config.value_column, self.config.category_column);
+        
         let data_sources = ctx.data_sources.read();
         
         // Get the specific data source for this view or fallback to first available
         let data_source = if let Some(source_id) = &self.config.data_source_id {
+            tracing::debug!("Using specific data source: {}", source_id);
             data_sources.get(source_id)
         } else {
+            tracing::debug!("Using first available data source");
             data_sources.values().next()
         }?;
         
@@ -117,24 +122,54 @@ impl BoxPlotView {
             end: dv_core::navigation::NavigationPosition::Sequential(nav_context.total_rows),
         };
         
-        let data = ctx.runtime_handle.block_on(data_source.query_range(&range)).ok()?;
+        let data = match ctx.runtime_handle.block_on(data_source.query_range(&range)) {
+            Ok(d) => {
+                tracing::info!("Fetched batch with {} rows", d.num_rows());
+                d
+            },
+            Err(e) => {
+                tracing::error!("Failed to fetch data: {}", e);
+                return None;
+            }
+        };
+        
+        // Log available columns
+        let schema = data.schema();
+        let column_names: Vec<String> = schema.fields().iter().map(|f| f.name().clone()).collect();
+        tracing::debug!("Available columns in batch: {:?}", column_names);
         
         // Extract value column
-        let val_column = data.column_by_name(&self.config.value_column)?;
+        let val_column = match data.column_by_name(&self.config.value_column) {
+            Some(col) => {
+                tracing::debug!("Found value column '{}' with type {:?}", self.config.value_column, col.data_type());
+                col
+            },
+            None => {
+                tracing::error!("Value column '{}' not found in batch. Available: {:?}", self.config.value_column, column_names);
+                return None;
+            }
+        };
+        
         let values: Vec<f64> = if let Some(float_array) = val_column.as_any().downcast_ref::<Float64Array>() {
-            (0..float_array.len()).filter_map(|i| {
+            let vals = (0..float_array.len()).filter_map(|i| {
                 if float_array.is_null(i) { None } else { Some(float_array.value(i)) }
-            }).collect()
+            }).collect::<Vec<_>>();
+            tracing::debug!("Value column (Float64): {} non-null values out of {}", vals.len(), float_array.len());
+            vals
         } else if let Some(int_array) = val_column.as_any().downcast_ref::<Int64Array>() {
-            (0..int_array.len()).filter_map(|i| {
+            let vals = (0..int_array.len()).filter_map(|i| {
                 if int_array.is_null(i) { None } else { Some(int_array.value(i) as f64) }
-            }).collect()
+            }).collect::<Vec<_>>();
+            tracing::debug!("Value column (Int64): {} non-null values out of {}", vals.len(), int_array.len());
+            vals
         } else {
+            tracing::error!("Value column has unsupported type: {:?}", val_column.data_type());
             return None;
         };
         
         // If no category column, treat all data as one category
         if self.config.category_column.is_none() {
+            tracing::info!("No category column, calculating stats for all {} values", values.len());
             let stats = self.calculate_box_stats(&values)?;
             return Some(vec![BoxPlotData {
                 categories: vec!["All Data".to_string()],
@@ -330,9 +365,9 @@ impl SpaceView for BoxPlotView {
     
     fn ui(&mut self, ctx: &ViewerContext, ui: &mut Ui) {
         
-        // Update data if navigation changed
+        // Update data if navigation changed or if we have no cached data
         let nav_pos = ctx.navigation.get_context().position.clone();
-        if self.last_navigation_pos.as_ref() != Some(&nav_pos) {
+        if self.cached_data.is_none() || self.last_navigation_pos.as_ref() != Some(&nav_pos) {
             self.cached_data = self.fetch_data(ctx).and_then(|v| v.into_iter().next());
             self.last_navigation_pos = Some(nav_pos);
         }
