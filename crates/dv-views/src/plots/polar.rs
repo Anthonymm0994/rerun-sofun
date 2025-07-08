@@ -51,13 +51,8 @@ impl PolarPlot {
     }
     
     pub fn ui(&mut self, ui: &mut Ui, viewer_context: &ViewerContext) {
-        // Configuration panel
-        egui::CollapsingHeader::new("Configuration")
-            .default_open(false)
-            .show(ui, |ui| {
-                self.show_config(ui, viewer_context);
-            });
-        
+        // Simple configuration - just angles in degrees
+        ui.checkbox(&mut self.config.angle_in_degrees, "Angles in degrees");
         ui.separator();
         
         // Main plot area
@@ -91,85 +86,7 @@ impl PolarPlot {
         }
     }
     
-    fn show_config(&mut self, ui: &mut Ui, viewer_context: &ViewerContext) {
-        let data_sources = viewer_context.data_sources.read();
-        let data_source = if let Some(source_id) = &self.config.data_source_id {
-            data_sources.get(source_id)
-        } else {
-            data_sources.values().next()
-        };
-        
-        if let Some(data_source) = data_source {
-            let schema = viewer_context.runtime_handle.block_on(data_source.schema());
-            
-            // Get numeric columns
-            let numeric_columns: Vec<String> = schema.fields()
-                .iter()
-                .filter(|f| matches!(f.data_type(), 
-                    arrow::datatypes::DataType::Float64 | 
-                    arrow::datatypes::DataType::Float32 | 
-                    arrow::datatypes::DataType::Int64 | 
-                    arrow::datatypes::DataType::Int32))
-                .map(|f| f.name().clone())
-                .collect();
-            
-            // Get categorical columns
-            let categorical_columns: Vec<String> = schema.fields()
-                .iter()
-                .filter(|f| matches!(f.data_type(), arrow::datatypes::DataType::Utf8))
-                .map(|f| f.name().clone())
-                .collect();
-            
-            ui.horizontal(|ui| {
-                ui.label("Angle:");
-                egui::ComboBox::from_id_source(format!("polar_angle_{}", self.id))
-                    .selected_text(&self.config.angle_column)
-                    .show_ui(ui, |ui| {
-                        for col in &numeric_columns {
-                            ui.selectable_value(&mut self.config.angle_column, col.clone(), col);
-                        }
-                    });
-            });
-            
-            ui.horizontal(|ui| {
-                ui.label("Radius:");
-                egui::ComboBox::from_id_source(format!("polar_radius_{}", self.id))
-                    .selected_text(&self.config.radius_column)
-                    .show_ui(ui, |ui| {
-                        for col in &numeric_columns {
-                            ui.selectable_value(&mut self.config.radius_column, col.clone(), col);
-                        }
-                    });
-            });
-            
-            ui.horizontal(|ui| {
-                ui.label("Category:");
-                let current = self.config.category_column.as_ref()
-                    .map(|s| s.as_str())
-                    .unwrap_or("None");
-                
-                egui::ComboBox::from_id_source(format!("polar_category_{}", self.id))
-                    .selected_text(current)
-                    .show_ui(ui, |ui| {
-                        if ui.selectable_label(self.config.category_column.is_none(), "None").clicked() {
-                            self.config.category_column = None;
-                        }
-                        for col in &categorical_columns {
-                            let selected = self.config.category_column.as_ref() == Some(col);
-                            if ui.selectable_label(selected, col).clicked() {
-                                self.config.category_column = Some(col.clone());
-                            }
-                        }
-                    });
-            });
-            
-            ui.separator();
-            
-            ui.checkbox(&mut self.config.angle_in_degrees, "Angles in degrees");
-            ui.checkbox(&mut self.config.show_grid, "Show grid");
-            ui.checkbox(&mut self.config.show_legend, "Show legend");
-        }
-    }
+
     
     fn render_polar_plot(&self, ui: &mut Ui, batch: &RecordBatch, _schema: &Arc<Schema>) {
         // Get angle and radius data
@@ -223,10 +140,13 @@ impl PolarPlot {
         }
         
         // Create plot
-        let plot = Plot::new(format!("polar_plot_{}", self.id))
+        let mut plot = Plot::new(format!("polar_plot_{}", self.id))
             .data_aspect(1.0) // Keep aspect ratio 1:1 for circular plot
-            .legend(Legend::default())
-            .show_axes([self.config.show_grid, self.config.show_grid]);
+            .show_axes([false, false]); // Don't show cartesian axes for polar plot
+            
+        if self.config.show_legend {
+            plot = plot.legend(Legend::default());
+        }
         
         let response = plot.show(ui, |plot_ui| {
             // Add polar grid if enabled
@@ -250,7 +170,6 @@ impl PolarPlot {
                         Line::new(PlotPoints::new(circle_points))
                             .color(Color32::from_gray(60))
                             .width(0.5)
-                            .name(format!("r={:.1}", r))
                     );
                 }
                 
@@ -266,7 +185,6 @@ impl PolarPlot {
                         Line::new(PlotPoints::new(line_points))
                             .color(Color32::from_gray(60))
                             .width(0.5)
-                            .name(format!("{}°", angle_deg))
                     );
                 }
             }

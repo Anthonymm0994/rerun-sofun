@@ -116,10 +116,18 @@ impl HistogramView {
     
     /// Fetch histogram data based on the current navigation context
     fn fetch_histogram_data(&self, ctx: &ViewerContext) -> Option<HistogramData> {
-        // Get the specific data source for this view
-        let source_id = self.config.data_source_id.as_ref()?;
+        if self.config.column.is_empty() {
+            return None;
+        }
+        
         let data_sources = ctx.data_sources.read();
-        let data_source = data_sources.get(source_id)?;
+        
+        // Get the specific data source for this view or fallback to first available
+        let data_source = if let Some(source_id) = &self.config.data_source_id {
+            data_sources.get(source_id)
+        } else {
+            data_sources.values().next()
+        }?;
         
         // Query data
         let nav_pos = ctx.navigation.get_context().position.clone();
@@ -271,29 +279,6 @@ impl SpaceView for HistogramView {
     }
     
     fn ui(&mut self, ctx: &ViewerContext, ui: &mut Ui) {
-        // Show data source selector at top
-        ui.horizontal(|ui| {
-            ui.label("Data Source:");
-            
-            let current_source = self.config.data_source_id.as_deref().unwrap_or("None");
-            egui::ComboBox::from_id_source(format!("hist_source_{}", self.id))
-                .selected_text(current_source)
-                .show_ui(ui, |ui| {
-                    let data_sources = ctx.data_sources.read();
-                    if data_sources.is_empty() {
-                        ui.label("No data sources loaded");
-                    } else {
-                        for (source_id, _) in data_sources.iter() {
-                            let is_selected = self.config.data_source_id.as_ref() == Some(source_id);
-                            if ui.selectable_label(is_selected, source_id).clicked() {
-                                self.set_data_source(source_id.clone());
-                            }
-                        }
-                    }
-                });
-        });
-        
-        ui.separator();
         
         // Update data if navigation changed
         let nav_pos = ctx.navigation.get_context().position.clone();

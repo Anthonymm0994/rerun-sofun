@@ -102,10 +102,18 @@ impl ScatterPlotView {
     
     /// Get plot data from the current data source
     fn fetch_plot_data(&mut self, ctx: &ViewerContext) -> Option<ScatterData> {
+        if self.config.x_column.is_empty() || self.config.y_column.is_empty() {
+            return None;
+        }
+        
         let data_sources = ctx.data_sources.read();
-
-        let data_source = data_sources.values().next();
-        let data_source = data_source.as_ref()?;
+        
+        // Get the specific data source for this view
+        let data_source = if !self.config.data_source_id.is_empty() {
+            data_sources.get(&self.config.data_source_id)
+        } else {
+            data_sources.values().next()
+        }?;
         
         // Get navigation context
         let nav_context = ctx.navigation.get_context();
@@ -267,23 +275,14 @@ impl SpaceView for ScatterPlotView {
                 }
             });
         } else {
-            // Configuration UI when no data
-            ui.vertical_centered(|ui| {
-                ui.label("Scatter Plot Configuration");
-                ui.separator();
-                
-                ui.horizontal(|ui| {
-                    ui.label("X Column:");
-                    ui.text_edit_singleline(&mut self.config.x_column);
-                });
-                
-                ui.horizontal(|ui| {
-                    ui.label("Y Column:");
-                    ui.text_edit_singleline(&mut self.config.y_column);
-                });
-                
-                ui.separator();
-                ui.label("Configure columns and load data to see scatter plot");
+            ui.centered_and_justified(|ui| {
+                ui.label("No data to display");
+                if self.config.x_column.is_empty() || self.config.y_column.is_empty() {
+                    ui.label(egui::RichText::new("Please configure X and Y columns").weak());
+                } else {
+                    ui.label(egui::RichText::new(format!("X: {}, Y: {}", self.config.x_column, self.config.y_column)).weak());
+                    ui.label(egui::RichText::new("Check if columns exist in the data source").weak());
+                }
             });
         }
     }

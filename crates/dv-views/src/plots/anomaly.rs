@@ -111,9 +111,13 @@ impl AnomalyDetectionView {
     /// Fetch data and detect anomalies
     fn fetch_data(&mut self, ctx: &ViewerContext) -> Option<AnomalyData> {
         let data_sources = ctx.data_sources.read();
-
-        let data_source = data_sources.values().next();
-        let data_source = data_source.as_ref()?;
+        
+        // Get the specific data source for this view
+        let data_source = if !self.config.data_source_id.is_empty() {
+            data_sources.get(&self.config.data_source_id)
+        } else {
+            data_sources.values().next()
+        }?;
         
         // Get navigation context
         let nav_context = ctx.navigation.get_context();

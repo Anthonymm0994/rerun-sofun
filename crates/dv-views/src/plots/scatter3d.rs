@@ -472,9 +472,15 @@ impl SpaceView for Scatter3DPlot {
         // Update data if needed
         if self.cached_data.is_none() {
             let data_sources = ctx.data_sources.read();
-
-            let data_source = data_sources.values().next();
-            if let Some(source) = data_source.as_ref() {
+            
+            // Get the specific data source for this view
+            let data_source = if !self.config.data_source_id.is_empty() {
+                data_sources.get(&self.config.data_source_id)
+            } else {
+                data_sources.values().next()
+            };
+            
+            if let Some(source) = data_source {
                 let nav_pos = ctx.navigation.get_context().position.clone();
                 if let Ok(batch) = ctx.runtime_handle.block_on(source.query_at(&nav_pos)) {
                     self.cached_data = Some(batch);
