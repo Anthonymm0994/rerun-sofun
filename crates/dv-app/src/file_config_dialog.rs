@@ -843,29 +843,69 @@ impl FileConfigDialog {
         }
         
         let non_empty_values: Vec<&str> = values.iter()
-            .filter(|v| !v.is_empty())
-            .map(|s| s.as_str())
+            .filter(|v| !v.is_empty() && !v.trim().is_empty())
+            .map(|s| s.trim())
             .collect();
         
         if non_empty_values.is_empty() {
             return SerializableDataType::Utf8;
         }
         
-        // Check for boolean first (most specific)
-        if non_empty_values.iter().all(|v| {
-            matches!(v.to_lowercase().as_str(), "true" | "false" | "1" | "0" | "yes" | "no")
-        }) {
+        // Track statistics for type inference
+        let mut all_integers = true;
+        let mut all_floats = true;
+        let mut all_booleans = true;
+        let mut has_decimal = false;
+        
+        for value in &non_empty_values {
+            let v = value.trim();
+            
+            // Check for boolean patterns
+            if all_booleans {
+                let lower = v.to_lowercase();
+                if !matches!(lower.as_str(), "true" | "false" | "1" | "0" | "yes" | "no" | "y" | "n") {
+                    all_booleans = false;
+                }
+            }
+            
+            // Check for integer
+            if all_integers {
+                // Remove possible thousand separators and check
+                let cleaned = v.replace(",", "").replace("_", "");
+                if cleaned.parse::<i64>().is_err() {
+                    all_integers = false;
+                }
+            }
+            
+            // Check for float
+            if all_floats {
+                let cleaned = v.replace(",", "").replace("_", "");
+                if cleaned.contains('.') {
+                    has_decimal = true;
+                }
+                if cleaned.parse::<f64>().is_err() {
+                    all_floats = false;
+                }
+            }
+        }
+        
+        // Return the most specific type that matches
+        if all_booleans && non_empty_values.len() > 1 {
             return SerializableDataType::Boolean;
         }
         
-        // Check for integer
-        if non_empty_values.iter().all(|v| v.parse::<i64>().is_ok()) {
+        if all_integers {
             return SerializableDataType::Int64;
         }
         
-        // Check for float
-        if non_empty_values.iter().all(|v| v.parse::<f64>().is_ok()) {
-            return SerializableDataType::Float64;
+        if all_floats {
+            // Only return float if we actually saw decimal points
+            // Otherwise integers like "123" would be detected as float
+            if has_decimal {
+                return SerializableDataType::Float64;
+            } else {
+                return SerializableDataType::Int64;
+            }
         }
         
         // Check for dates (ISO format YYYY-MM-DD)

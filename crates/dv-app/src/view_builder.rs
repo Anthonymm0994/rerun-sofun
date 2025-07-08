@@ -741,6 +741,26 @@ impl ViewBuilderDialog {
                 self.show_plot_type_button_compact(ui, "🏔️", "3D Surface", PlotType::Surface3D);
                 self.show_plot_type_button_compact(ui, "🧭", "Polar", PlotType::PolarPlot);
                 self.show_plot_type_button_compact(ui, "🗺️", "Contour", PlotType::Contour);
+                self.show_plot_type_button_compact(ui, "🌈", "Parallel Coords", PlotType::ParallelCoordinates);
+                self.show_plot_type_button_compact(ui, "🎯", "Radar", PlotType::RadarChart);
+                
+                ui.add_space(6.0);
+                ui.label(egui::RichText::new("Hierarchical").size(11.0).strong().color(Color32::from_gray(180)));
+                ui.add_space(2.0);
+                
+                self.show_plot_type_button_compact(ui, "🧵", "Sankey", PlotType::Sankey);
+                self.show_plot_type_button_compact(ui, "📊", "Treemap", PlotType::Treemap);
+                self.show_plot_type_button_compact(ui, "🌞", "Sunburst", PlotType::Sunburst);
+                self.show_plot_type_button_compact(ui, "🌐", "Network", PlotType::NetworkGraph);
+                
+                ui.add_space(6.0);
+                ui.label(egui::RichText::new("Specialized").size(11.0).strong().color(Color32::from_gray(180)));
+                ui.add_space(2.0);
+                
+                self.show_plot_type_button_compact(ui, "⏳", "Time Analysis", PlotType::TimeAnalysis);
+                self.show_plot_type_button_compact(ui, "🌍", "Geographic", PlotType::GeoPlot);
+                self.show_plot_type_button_compact(ui, "🌊", "Stream", PlotType::StreamGraph);
+                self.show_plot_type_button_compact(ui, "🕒", "Candlestick", PlotType::CandlestickChart);
             });
             
             ui.separator();
@@ -982,26 +1002,26 @@ impl ViewBuilderDialog {
             },
             PlotType::Sankey => ViewConfig::Sankey {
                 title: "Sankey Diagram".to_string(),
-                data_source_id: None,
+                data_source_id: self.selected_data_source.clone(),
                 source_column: String::new(),
                 target_column: String::new(),
                 value_column: String::new(),
             },
             PlotType::Treemap => ViewConfig::Treemap {
                 title: "Treemap".to_string(),
-                data_source_id: None,
+                data_source_id: self.selected_data_source.clone(),
                 category_column: String::new(),
                 value_column: String::new(),
             },
             PlotType::Sunburst => ViewConfig::Sunburst {
                 title: "Sunburst".to_string(),
-                data_source_id: None,
+                data_source_id: self.selected_data_source.clone(),
                 hierarchy_columns: vec![],
                 value_column: None,
             },
             PlotType::NetworkGraph => ViewConfig::NetworkGraph {
                 title: "Network Graph".to_string(),
-                data_source_id: None,
+                data_source_id: self.selected_data_source.clone(),
                 source_column: String::new(),
                 target_column: String::new(),
             },
@@ -1012,27 +1032,27 @@ impl ViewBuilderDialog {
             },
             PlotType::TimeAnalysis => ViewConfig::TimeAnalysis {
                 title: "Time Analysis".to_string(),
-                data_source_id: None,
+                data_source_id: self.selected_data_source.clone(),
                 time_column: String::new(),
                 value_columns: vec![],
             },
             PlotType::GeoPlot => ViewConfig::GeoPlot {
                 title: "Geographic Plot".to_string(),
-                data_source_id: None,
+                data_source_id: self.selected_data_source.clone(),
                 lat_column: String::new(),
                 lon_column: String::new(),
                 value_column: None,
             },
             PlotType::StreamGraph => ViewConfig::StreamGraph {
                 title: "Stream Graph".to_string(),
-                data_source_id: None,
+                data_source_id: self.selected_data_source.clone(),
                 time_column: String::new(),
                 value_column: String::new(),
                 category_column: None,
             },
             PlotType::CandlestickChart => ViewConfig::CandlestickChart {
                 title: "Candlestick Chart".to_string(),
-                data_source_id: None,
+                data_source_id: self.selected_data_source.clone(),
                 time_column: String::new(),
                 open_column: String::new(),
                 high_column: String::new(),

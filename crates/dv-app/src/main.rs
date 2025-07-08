@@ -125,12 +125,13 @@ impl DemoExample {
 }
 
 /// Create views for assembly line demo
-fn create_assembly_line_views() -> Vec<Box<dyn SpaceView>> {
+fn create_assembly_line_views(data_source_id: String) -> Vec<Box<dyn SpaceView>> {
     let mut views: Vec<Box<dyn SpaceView>> = Vec::new();
     
     // 1. Assembly Line Performance
     let assembly_id = Uuid::new_v4();
     let mut assembly_view = TimeSeriesView::new(assembly_id, "Assembly Line Performance".to_string());
+    assembly_view.config.data_source_id = Some(data_source_id.clone());
     assembly_view.config.x_column = Some("time".to_string());
     assembly_view.config.y_columns = vec![
         "station_1_throughput".to_string(),
@@ -142,6 +143,7 @@ fn create_assembly_line_views() -> Vec<Box<dyn SpaceView>> {
     // 2. Manufacturing Efficiency
     let efficiency_id = Uuid::new_v4();
     let mut efficiency_view = TimeSeriesView::new(efficiency_id, "Manufacturing Efficiency".to_string());
+    efficiency_view.config.data_source_id = Some(data_source_id.clone());
     efficiency_view.config.x_column = Some("time".to_string());
     efficiency_view.config.y_columns = vec![
         "efficiency".to_string(),
@@ -153,6 +155,7 @@ fn create_assembly_line_views() -> Vec<Box<dyn SpaceView>> {
     // 3. System Performance
     let performance_id = Uuid::new_v4();
     let mut performance_view = TimeSeriesView::new(performance_id, "System Performance".to_string());
+    performance_view.config.data_source_id = Some(data_source_id.clone());
     performance_view.config.x_column = Some("time".to_string());
     performance_view.config.y_columns = vec![
         "cpu_usage".to_string(),
@@ -162,19 +165,21 @@ fn create_assembly_line_views() -> Vec<Box<dyn SpaceView>> {
     
     // 4. Data Table
     let table_id = Uuid::new_v4();
-    let table_view = TableView::new(table_id, "Data Inspector".to_string());
+    let mut table_view = TableView::new(table_id, "Data Inspector".to_string());
+    table_view.config.data_source_id = Some(data_source_id);
     views.push(Box::new(table_view));
     
     views
 }
 
 /// Create views for sensor network demo
-fn create_sensor_network_views() -> Vec<Box<dyn SpaceView>> {
+fn create_sensor_network_views(data_source_id: String) -> Vec<Box<dyn SpaceView>> {
     let mut views: Vec<Box<dyn SpaceView>> = Vec::new();
     
     // 1. Environmental Sensors
     let env_id = Uuid::new_v4();
     let mut env_view = TimeSeriesView::new(env_id, "Environmental Sensors".to_string());
+    env_view.config.data_source_id = Some(data_source_id.clone());
     env_view.config.x_column = Some("time".to_string());
     env_view.config.y_columns = vec![
         "cpu_usage".to_string(),
@@ -186,6 +191,7 @@ fn create_sensor_network_views() -> Vec<Box<dyn SpaceView>> {
     // 2. Network Performance
     let network_id = Uuid::new_v4();
     let mut network_view = TimeSeriesView::new(network_id, "Network Performance".to_string());
+    network_view.config.data_source_id = Some(data_source_id.clone());
     network_view.config.x_column = Some("time".to_string());
     network_view.config.y_columns = vec![
         "network_latency".to_string(),
@@ -196,6 +202,7 @@ fn create_sensor_network_views() -> Vec<Box<dyn SpaceView>> {
     // 3. Position Scatter
     let position_id = Uuid::new_v4();
     let mut position_view = ScatterPlotView::new(position_id, "Sensor Positions".to_string());
+    position_view.config.data_source_id = Some(data_source_id);
     position_view.config.x_column = "position_x".to_string();
     position_view.config.y_column = "position_y".to_string();
     views.push(Box::new(position_view));
@@ -204,12 +211,13 @@ fn create_sensor_network_views() -> Vec<Box<dyn SpaceView>> {
 }
 
 /// Create views for financial dashboard demo
-fn create_financial_views() -> Vec<Box<dyn SpaceView>> {
+fn create_financial_views(data_source_id: String) -> Vec<Box<dyn SpaceView>> {
     let mut views: Vec<Box<dyn SpaceView>> = Vec::new();
     
     // 1. Business Metrics
     let business_id = Uuid::new_v4();
     let mut business_view = TimeSeriesView::new(business_id, "Business Metrics".to_string());
+    business_view.config.data_source_id = Some(data_source_id.clone());
     business_view.config.x_column = Some("time".to_string());
     business_view.config.y_columns = vec![
         "revenue".to_string(),
@@ -221,6 +229,7 @@ fn create_financial_views() -> Vec<Box<dyn SpaceView>> {
     // 2. Market Trends
     let market_id = Uuid::new_v4();
     let mut market_view = TimeSeriesView::new(market_id, "Market Trends".to_string());
+    market_view.config.data_source_id = Some(data_source_id);
     market_view.config.x_column = Some("time".to_string());
     market_view.config.y_columns = vec![
         "revenue".to_string(),
@@ -232,12 +241,13 @@ fn create_financial_views() -> Vec<Box<dyn SpaceView>> {
 }
 
 /// Create views for signal analysis demo
-fn create_signal_analysis_views() -> Vec<Box<dyn SpaceView>> {
+fn create_signal_analysis_views(data_source_id: String) -> Vec<Box<dyn SpaceView>> {
     let mut views: Vec<Box<dyn SpaceView>> = Vec::new();
     
     // Signal Decomposition
     let signals_id = Uuid::new_v4();
     let mut signals_view = TimeSeriesView::new(signals_id, "Signal Decomposition".to_string());
+    signals_view.config.data_source_id = Some(data_source_id.clone());
     signals_view.config.x_column = Some("time".to_string());
     signals_view.config.y_columns = vec![
         "combined".to_string(),
@@ -250,6 +260,7 @@ fn create_signal_analysis_views() -> Vec<Box<dyn SpaceView>> {
     // Frequency Analysis
     let freq_id = Uuid::new_v4();
     let mut freq_view = TimeSeriesView::new(freq_id, "Frequency Components".to_string());
+    freq_view.config.data_source_id = Some(data_source_id);
     freq_view.config.x_column = Some("time".to_string());
     freq_view.config.y_columns = vec![
         "sin_wave".to_string(),
@@ -402,15 +413,16 @@ impl FrogApp {
         
         // Set it as the current data source
         let mut sources = HashMap::new();
-        sources.insert(Uuid::new_v4().to_string(), demo_source as Box<dyn DataSource>);
+        let demo_source_id = Uuid::new_v4().to_string();
+        sources.insert(demo_source_id.clone(), demo_source as Box<dyn DataSource>);
         *self.viewer_context.data_sources.write() = sources;
         
         // Create appropriate views based on the example
         let views = match example {
-            DemoExample::AssemblyLine => create_assembly_line_views(),
-            DemoExample::SensorNetwork => create_sensor_network_views(),
-            DemoExample::FinancialDashboard => create_financial_views(),
-            DemoExample::SignalAnalysis => create_signal_analysis_views(),
+            DemoExample::AssemblyLine => create_assembly_line_views(demo_source_id.clone()),
+            DemoExample::SensorNetwork => create_sensor_network_views(demo_source_id.clone()),
+            DemoExample::FinancialDashboard => create_financial_views(demo_source_id.clone()),
+            DemoExample::SignalAnalysis => create_signal_analysis_views(demo_source_id.clone()),
         };
         
         // Create layout
