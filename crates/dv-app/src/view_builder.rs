@@ -2273,9 +2273,9 @@ impl ViewBuilderDialog {
                 ViewConfig::Scatter { title, data_source_id, x_column, y_column, color_column } => {
                     let id = uuid::Uuid::new_v4();
                     let mut view = ScatterPlotView::new(id, title.clone());
-                    view.config.data_source_id = data_source_id.clone().unwrap_or_else(|| {
+                    view.config.data_source_id = Some(data_source_id.clone().unwrap_or_else(|| {
                         self.data_sources.first().map(|(id, _)| id.clone()).unwrap_or_default()
-                    });
+                    }));
                     view.config.x_column = x_column.clone();
                     view.config.y_column = y_column.clone();
                     view.config.color_column = color_column.clone();
@@ -2292,9 +2292,9 @@ impl ViewBuilderDialog {
                 ViewConfig::BarChart { title, data_source_id, category_column, value_column } => {
                     let id = uuid::Uuid::new_v4();
                     let mut view = BarChartView::new(id, title.clone());
-                    view.config.data_source_id = data_source_id.clone().unwrap_or_else(|| {
+                    view.config.data_source_id = Some(data_source_id.clone().unwrap_or_else(|| {
                         self.data_sources.first().map(|(id, _)| id.clone()).unwrap_or_default()
-                    });
+                    }));
                     view.config.category_column = category_column.clone();
                     view.config.value_column = value_column.clone();
                     views.push(Box::new(view));
@@ -2303,9 +2303,9 @@ impl ViewBuilderDialog {
                     use dv_views::plots::LinePlotView;
                     let id = uuid::Uuid::new_v4();
                     let mut view = LinePlotView::new(id, title.clone());
-                    view.config.data_source_id = data_source_id.clone().unwrap_or_else(|| {
+                    view.config.data_source_id = Some(data_source_id.clone().unwrap_or_else(|| {
                         self.data_sources.first().map(|(id, _)| id.clone()).unwrap_or_default()
-                    });
+                    }));
                     view.config.x_column = x_column.clone();
                     view.config.y_columns = y_columns.clone();
                     views.push(Box::new(view));
@@ -2335,9 +2335,9 @@ impl ViewBuilderDialog {
                     use dv_views::plots::ViolinPlotView;
                     let id = uuid::Uuid::new_v4();
                     let mut view = ViolinPlotView::new(id, title.clone());
-                    view.config.data_source_id = data_source_id.clone().unwrap_or_else(|| {
+                    view.config.data_source_id = Some(data_source_id.clone().unwrap_or_else(|| {
                         self.data_sources.first().map(|(id, _)| id.clone()).unwrap_or_default()
-                    });
+                    }));
                     view.config.value_column = value_column.clone();
                     view.config.category_column = category_column.clone();
                     views.push(Box::new(view));
@@ -2346,9 +2346,9 @@ impl ViewBuilderDialog {
                     use dv_views::plots::HeatmapView;
                     let id = uuid::Uuid::new_v4();
                     let mut view = HeatmapView::new(id, title.clone());
-                    view.config.data_source_id = data_source_id.clone().unwrap_or_else(|| {
+                    view.config.data_source_id = Some(data_source_id.clone().unwrap_or_else(|| {
                         self.data_sources.first().map(|(id, _)| id.clone()).unwrap_or_default()
-                    });
+                    }));
                     view.config.x_column = x_column.clone();
                     view.config.y_column = y_column.clone();
                     view.config.value_column = value_column.clone();
@@ -2358,9 +2358,9 @@ impl ViewBuilderDialog {
                     use dv_views::plots::AnomalyDetectionView;
                     let id = uuid::Uuid::new_v4();
                     let mut view = AnomalyDetectionView::new(id, title.clone());
-                    view.config.data_source_id = data_source_id.clone().unwrap_or_else(|| {
+                    view.config.data_source_id = Some(data_source_id.clone().unwrap_or_else(|| {
                         self.data_sources.first().map(|(id, _)| id.clone()).unwrap_or_default()
-                    });
+                    }));
                     view.config.column = column.clone();
                     views.push(Box::new(view));
                 }
@@ -2368,9 +2368,9 @@ impl ViewBuilderDialog {
                     use dv_views::plots::CorrelationMatrixView;
                     let id = uuid::Uuid::new_v4();
                     let mut view = CorrelationMatrixView::new(id, title.clone());
-                    view.config.data_source_id = data_source_id.clone().unwrap_or_else(|| {
+                    view.config.data_source_id = Some(data_source_id.clone().unwrap_or_else(|| {
                         self.data_sources.first().map(|(id, _)| id.clone()).unwrap_or_default()
-                    });
+                    }));
                     view.config.columns = columns.clone();
                     views.push(Box::new(view));
                 }
@@ -2378,9 +2378,9 @@ impl ViewBuilderDialog {
                     use dv_views::plots::Scatter3DView;
                     let id = uuid::Uuid::new_v4();
                     let mut view = Scatter3DView::new(id, title.clone());
-                    view.config.data_source_id = data_source_id.clone().unwrap_or_else(|| {
+                    view.config.data_source_id = Some(data_source_id.clone().unwrap_or_else(|| {
                         self.data_sources.first().map(|(id, _)| id.clone()).unwrap_or_default()
-                    });
+                    }));
                     view.config.x_column = x_column.clone();
                     view.config.y_column = y_column.clone();
                     view.config.z_column = z_column.clone();
@@ -2390,9 +2390,9 @@ impl ViewBuilderDialog {
                     use dv_views::plots::Surface3DView;
                     let id = uuid::Uuid::new_v4();
                     let mut view = Surface3DView::new(id, title.clone());
-                    view.config.data_source_id = data_source_id.clone().unwrap_or_else(|| {
+                    view.config.data_source_id = Some(data_source_id.clone().unwrap_or_else(|| {
                         self.data_sources.first().map(|(id, _)| id.clone()).unwrap_or_default()
-                    });
+                    }));
                     view.config.x_column = x_column.clone();
                     view.config.y_column = y_column.clone();
                     view.config.z_column = z_column.clone();
@@ -2402,9 +2402,9 @@ impl ViewBuilderDialog {
                     use dv_views::plots::ParallelCoordinatesView;
                     let id = uuid::Uuid::new_v4();
                     let mut view = ParallelCoordinatesView::new(id, title.clone());
-                    view.config.data_source_id = data_source_id.clone().unwrap_or_else(|| {
+                    view.config.data_source_id = Some(data_source_id.clone().unwrap_or_else(|| {
                         self.data_sources.first().map(|(id, _)| id.clone()).unwrap_or_default()
-                    });
+                    }));
                     view.config.columns = columns.clone();
                     views.push(Box::new(view));
                 }
@@ -2412,9 +2412,9 @@ impl ViewBuilderDialog {
                     use dv_views::plots::RadarChart;
                     let id = uuid::Uuid::new_v4();
                     let mut view = RadarChart::new(id, title.clone());
-                    view.config.data_source_id = data_source_id.clone().unwrap_or_else(|| {
+                    view.config.data_source_id = Some(data_source_id.clone().unwrap_or_else(|| {
                         self.data_sources.first().map(|(id, _)| id.clone()).unwrap_or_default()
-                    });
+                    }));
                     view.config.value_columns = value_columns.clone();
                     view.config.group_column = group_column.clone();
                     views.push(Box::new(view));
@@ -2423,9 +2423,9 @@ impl ViewBuilderDialog {
                     use dv_views::plots::DistributionPlot;
                     let id = uuid::Uuid::new_v4();
                     let mut view = DistributionPlot::new(id, title.clone());
-                    view.config.data_source_id = data_source_id.clone().unwrap_or_else(|| {
+                    view.config.data_source_id = Some(data_source_id.clone().unwrap_or_else(|| {
                         self.data_sources.first().map(|(id, _)| id.clone()).unwrap_or_default()
-                    });
+                    }));
                     view.config.column = column.clone();
                     views.push(Box::new(view));
                 }
@@ -2448,9 +2448,9 @@ impl ViewBuilderDialog {
                     use dv_views::plots::ContourPlot;
                     let id = uuid::Uuid::new_v4();
                     let mut view = ContourPlot::new(id, title.clone());
-                    view.config.data_source_id = data_source_id.clone().unwrap_or_else(|| {
+                    view.config.data_source_id = Some(data_source_id.clone().unwrap_or_else(|| {
                         self.data_sources.first().map(|(id, _)| id.clone()).unwrap_or_default()
-                    });
+                    }));
                     view.config.x_column = x_column.clone();
                     view.config.y_column = y_column.clone();
                     view.config.z_column = z_column.clone();
