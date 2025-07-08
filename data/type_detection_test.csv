@@ -1,0 +1,6 @@
+integer_col,float_col,string_col,bool_col,date_col,mixed_int_float,thousand_sep,null_values
+1,1.5,apple,True,2024-01-01,1.0,"1,000",1.0
+2,2.7,banana,False,2024-01-02,2.0,"2,000",
+3,3.14,cherry,True,2024-01-03,3.5,"3,000",3.0
+4,4.2,date,False,2024-01-04,4.0,"4,000",
+5,5.9,elderberry,True,2024-01-05,5.0,"5,000",5.0

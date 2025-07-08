@@ -1,0 +1,30 @@
+{
+  "files": [
+    {
+      "path": "data/sales_data.csv",
+      "type": "csv",
+      "delimiter": ",",
+      "header_line": 0,
+      "null_handling": "exclude",
+      "selected_columns": [
+        "date",
+        "product",
+        "revenue",
+        "quantity"
+      ]
+    },
+    {
+      "path": "data/sensor_readings.csv",
+      "type": "csv",
+      "delimiter": ",",
+      "header_line": 0,
+      "null_handling": "exclude",
+      "selected_columns": [
+        "timestamp",
+        "sensor_id",
+        "temperature",
+        "humidity"
+      ]
+    }
+  ]
+}

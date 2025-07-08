@@ -1,0 +1,11 @@
+parent,child,value,category
+Root,A,54,Type1
+Root,B,68,Type2
+A,C,78,Type3
+A,D,11,Type3
+B,E,61,Type2
+B,F,86,Type2
+C,G,10,Type1
+C,H,51,Type3
+D,I,27,Type3
+D,J,75,Type1

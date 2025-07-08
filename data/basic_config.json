@@ -1,0 +1,12 @@
+{
+  "files": [
+    {
+      "path": "data/sales_data.csv",
+      "type": "csv",
+      "delimiter": ",",
+      "header_line": 0,
+      "null_handling": "exclude",
+      "selected_columns": []
+    }
+  ]
+}

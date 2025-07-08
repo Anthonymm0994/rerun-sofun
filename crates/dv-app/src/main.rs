@@ -1591,9 +1591,8 @@ impl eframe::App for FrogApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Only request continuous repaint when needed
         let has_data = !self.viewer_context.data_sources.read().is_empty();
-        let on_welcome_screen = self.viewport.is_empty(); // Show welcome screen when no views exist
         
-        if on_welcome_screen || self.demo_overlay.show {
+        if self.demo_overlay.show {
             ctx.request_repaint();
         }
         
@@ -1968,17 +1967,13 @@ impl eframe::App for FrogApp {
             
             // Main content area with viewport
             egui::CentralPanel::default().show(ctx, |ui| {
-                // Show welcome screen if no views are created, even if data is loaded
-                if self.viewport.is_empty() {
-                    self.show_welcome_screen(ui);
-                } else {
-                    self.viewport.ui(ui, &self.viewer_context);
-                }
+                // Always show the viewport, even if empty
+                self.viewport.ui(ui, &self.viewer_context);
             });
         } else {
-            // Show welcome screen if no data is loaded
+            // Show empty viewport if no data is loaded
             egui::CentralPanel::default().show(ctx, |ui| {
-                self.show_welcome_screen(ui);
+                self.viewport.ui(ui, &self.viewer_context);
             });
         }
     }
