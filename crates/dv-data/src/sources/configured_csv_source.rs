@@ -241,7 +241,7 @@ impl ConfiguredCsvSource {
                 .from_reader(reader);
             
             // Skip to start row (including header)
-            for _ in 0..(config.header_line + start_row) {
+            for _ in 0..(config.header_line + 1 + start_row) {
                 let mut record = csv::StringRecord::new();
                 csv_reader.read_record(&mut record)?;
             }

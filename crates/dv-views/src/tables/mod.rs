@@ -76,10 +76,14 @@ impl TableView {
     
     /// Fetch data from the current data source
     fn fetch_data(&mut self, ctx: &ViewerContext) -> Option<RecordBatch> {
-        // Get the specific data source for this view
-        let source_id = self.config.data_source_id.as_ref()?;
         let data_sources = ctx.data_sources.read();
-        let data_source = data_sources.get(source_id)?;
+        
+        // Get the specific data source for this view or fallback to first available
+        let data_source = if let Some(source_id) = &self.config.data_source_id {
+            data_sources.get(source_id)
+        } else {
+            data_sources.values().next()
+        }?;
         
         // Get current navigation position
         let nav_pos = ctx.navigation.get_context().position.clone();
@@ -323,6 +327,12 @@ impl TableView {
                             
                             let column = data.column(col_idx);
                             let value = arrow::util::display::array_value_to_string(column, actual_row_index).unwrap_or_default();
+                            
+                            // Debug: Log the raw value
+                            if value.is_empty() {
+                                tracing::warn!("Empty value at row {} col {} (field: {})", 
+                                    actual_row_index, col_idx, schema_fields[col_idx].name());
+                            }
                             
                             // Truncate long values
                             let display_value = if value.len() > 50 {
