@@ -13,6 +13,7 @@ use super::utils::stats::calculate_quartiles;
 /// Configuration for violin plot view
 #[derive(Clone)]
 pub struct ViolinPlotConfig {
+    pub data_source_id: String,
     /// Category column (X-axis)
     pub category_column: Option<String>,
     
@@ -47,6 +48,7 @@ pub struct ViolinPlotConfig {
 impl Default for ViolinPlotConfig {
     fn default() -> Self {
         Self {
+            data_source_id: String::new(),
             category_column: None,
             value_column: String::new(),
             violin_width: 0.8,
@@ -99,7 +101,9 @@ impl ViolinPlotView {
     
     /// Fetch violin plot data
     fn fetch_data(&mut self, ctx: &ViewerContext) -> Option<ViolinData> {
-        let data_source = ctx.data_source.read();
+        let data_sources = ctx.data_sources.read();
+
+        let data_source = data_sources.values().next();
         let data_source = data_source.as_ref()?;
         
         // Get navigation context
@@ -333,8 +337,20 @@ impl ViolinPlotView {
 }
 
 impl SpaceView for ViolinPlotView {
-    fn id(&self) -> &SpaceViewId {
-        &self.id
+    fn id(&self) -> SpaceViewId {
+        self.id
+    }
+
+    fn title(&self) -> &str {
+        &self.title
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
     }
     
     fn display_name(&self) -> &str {

@@ -9,6 +9,7 @@ use crate::{SpaceView, SpaceViewId, SelectionState, ViewerContext};
 /// Configuration for distribution plot
 #[derive(Debug, Clone)]
 pub struct DistributionConfig {
+    pub data_source_id: String,
     pub column: String,
     pub plot_type: DistributionPlotType,
     pub bins: usize,
@@ -25,6 +26,7 @@ pub enum DistributionPlotType {
 impl Default for DistributionConfig {
     fn default() -> Self {
         Self {
+            data_source_id: String::new(),
             column: String::new(),
             plot_type: DistributionPlotType::Histogram,
             bins: 30,
@@ -50,7 +52,20 @@ impl DistributionPlot {
 }
 
 impl SpaceView for DistributionPlot {
-    fn id(&self) -> &SpaceViewId { &self.id }
+    fn id(&self) -> SpaceViewId { self.id }
+    
+    fn title(&self) -> &str {
+        &self.title
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+    
     fn display_name(&self) -> &str { &self.title }
     fn view_type(&self) -> &str { "DistributionPlot" }
     

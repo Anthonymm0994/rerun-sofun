@@ -38,6 +38,9 @@ pub struct HistogramConfig {
     
     /// Whether to use log scale on Y axis
     pub log_y: bool,
+    
+    /// Data source ID
+    pub data_source_id: Option<String>,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -61,6 +64,7 @@ impl Default for HistogramConfig {
             show_grid: true,
             show_stats: true,
             log_y: false,
+            data_source_id: None,
         }
     }
 }
@@ -110,24 +114,21 @@ impl HistogramView {
         }
     }
     
-    /// Fetch histogram data
-    fn fetch_data(&mut self, ctx: &ViewerContext) -> Option<HistogramData> {
-        let data_source = ctx.data_source.read();
-        let data_source = data_source.as_ref()?;
+    /// Fetch histogram data based on the current navigation context
+    fn fetch_histogram_data(&self, ctx: &ViewerContext) -> Option<HistogramData> {
+        // Get the specific data source for this view
+        let source_id = self.config.data_source_id.as_ref()?;
+        let data_sources = ctx.data_sources.read();
+        let data_source = data_sources.get(source_id)?;
         
-        // Get navigation context
-        let nav_context = ctx.navigation.get_context();
+        // Query data
+        let nav_pos = ctx.navigation.get_context().position.clone();
+        let batch = ctx.runtime_handle.block_on(
+            data_source.query_at(&nav_pos)
+        ).ok()?;
         
-        // Fetch all data for histogram
-        let range = dv_core::navigation::NavigationRange {
-            start: dv_core::navigation::NavigationPosition::Sequential(0),
-            end: dv_core::navigation::NavigationPosition::Sequential(nav_context.total_rows),
-        };
-        
-        let data = ctx.runtime_handle.block_on(data_source.query_range(&range)).ok()?;
-        
-        // Extract column
-        let column = data.column_by_name(&self.config.column)?;
+        // Get the column
+        let column = batch.column_by_name(&self.config.column)?;
         let values: Vec<f64> = if let Some(float_array) = column.as_any().downcast_ref::<Float64Array>() {
             (0..float_array.len()).filter_map(|i| {
                 if float_array.is_null(i) { None } else { Some(float_array.value(i)) }
@@ -244,8 +245,8 @@ impl HistogramView {
 }
 
 impl SpaceView for HistogramView {
-    fn id(&self) -> &SpaceViewId {
-        &self.id
+    fn id(&self) -> SpaceViewId {
+        self.id
     }
     
     fn display_name(&self) -> &str {
@@ -256,11 +257,48 @@ impl SpaceView for HistogramView {
         "HistogramView"
     }
     
+    fn title(&self) -> &str {
+        &self.title
+    }
+    
+    fn set_data_source(&mut self, source_id: String) {
+        self.config.data_source_id = Some(source_id);
+        self.cached_data = None;
+    }
+    
+    fn data_source_id(&self) -> Option<&str> {
+        self.config.data_source_id.as_deref()
+    }
+    
     fn ui(&mut self, ctx: &ViewerContext, ui: &mut Ui) {
+        // Show data source selector at top
+        ui.horizontal(|ui| {
+            ui.label("Data Source:");
+            
+            let current_source = self.config.data_source_id.as_deref().unwrap_or("None");
+            egui::ComboBox::from_id_source(format!("hist_source_{}", self.id))
+                .selected_text(current_source)
+                .show_ui(ui, |ui| {
+                    let data_sources = ctx.data_sources.read();
+                    if data_sources.is_empty() {
+                        ui.label("No data sources loaded");
+                    } else {
+                        for (source_id, _) in data_sources.iter() {
+                            let is_selected = self.config.data_source_id.as_ref() == Some(source_id);
+                            if ui.selectable_label(is_selected, source_id).clicked() {
+                                self.set_data_source(source_id.clone());
+                            }
+                        }
+                    }
+                });
+        });
+        
+        ui.separator();
+        
         // Update data if navigation changed
         let nav_pos = ctx.navigation.get_context().position.clone();
         if self.last_navigation_pos.as_ref() != Some(&nav_pos) {
-            self.cached_data = self.fetch_data(ctx);
+            self.cached_data = self.fetch_histogram_data(ctx);
             self.last_navigation_pos = Some(nav_pos);
         }
         
@@ -376,6 +414,7 @@ impl SpaceView for HistogramView {
             "show_grid": self.config.show_grid,
             "show_stats": self.config.show_stats,
             "log_y": self.config.log_y,
+            "data_source_id": self.config.data_source_id,
         })
     }
     
@@ -421,6 +460,9 @@ impl SpaceView for HistogramView {
         if let Some(log_y) = config.get("log_y").and_then(|v| v.as_bool()) {
             self.config.log_y = log_y;
         }
+        if let Some(data_source_id) = config.get("data_source_id").and_then(|v| v.as_str()) {
+            self.config.data_source_id = Some(data_source_id.to_string());
+        }
     }
     
     fn on_selection_change(&mut self, _ctx: &ViewerContext, _selection: &SelectionState) {
@@ -429,5 +471,13 @@ impl SpaceView for HistogramView {
     
     fn on_frame_update(&mut self, _ctx: &ViewerContext, _dt: f32) {
         // Nothing to update per frame
+    }
+    
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+    
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
     }
 } 

@@ -6,17 +6,28 @@ authors.workspace = true
 license.workspace = true
 
 [dependencies]
-anyhow.workspace = true
-thiserror.workspace = true
-tracing.workspace = true
-parking_lot.workspace = true
-ahash.workspace = true
-serde.workspace = true
-chrono.workspace = true
-indexmap.workspace = true
+# Arrow data format
 arrow.workspace = true
+
+# Async trait for async methods in traits
 async-trait.workspace = true
-num_cpus = "1.16"
+
+# Error handling
+anyhow.workspace = true
+
+# Concurrency
+parking_lot.workspace = true
+
+# UUID for unique identifiers
 uuid = { version = "1.0", features = ["v4", "serde"] }
+
+# Async runtime
+tokio.workspace = true
+
+# Fast hashing
+ahash.workspace = true
+
+# Serialization
+serde.workspace = true
 
 [dev-dependencies] 

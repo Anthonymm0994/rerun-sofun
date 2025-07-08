@@ -10,22 +10,24 @@ use dv_core::navigation::NavigationPosition;
 /// Configuration for table views
 #[derive(Debug, Clone)]
 pub struct TableConfig {
+    pub data_source_id: Option<String>,
     pub show_row_numbers: bool,
     pub sortable_columns: bool,
     pub resizable_columns: bool,
     pub striped_rows: bool,
-    pub max_rows_displayed: usize,
+    pub rows_per_page: usize,
     pub column_widths: Vec<f32>,
 }
 
 impl Default for TableConfig {
     fn default() -> Self {
         Self {
+            data_source_id: None,
             show_row_numbers: true,
             sortable_columns: true,
             resizable_columns: true,
             striped_rows: true,
-            max_rows_displayed: 1000,
+            rows_per_page: 25,
             column_widths: Vec::new(),
         }
     }
@@ -44,6 +46,10 @@ pub struct TableView {
     
     // Column visibility
     column_visibility: std::collections::HashMap<String, bool>,
+    
+    // Pagination state
+    current_page: usize,
+    total_rows: usize,
 }
 
 #[derive(Default)]
@@ -63,13 +69,17 @@ impl TableView {
             last_navigation_pos: None,
             _scroll_state: ScrollState::default(),
             column_visibility: std::collections::HashMap::new(),
+            current_page: 1,
+            total_rows: 0,
         }
     }
     
     /// Fetch data from the current data source
     fn fetch_data(&mut self, ctx: &ViewerContext) -> Option<RecordBatch> {
-        let data_source = ctx.data_source.read();
-        let data_source = data_source.as_ref()?;
+        // Get the specific data source for this view
+        let source_id = self.config.data_source_id.as_ref()?;
+        let data_sources = ctx.data_sources.read();
+        let data_source = data_sources.get(source_id)?;
         
         // Get current navigation position
         let nav_pos = ctx.navigation.get_context().position.clone();
@@ -84,7 +94,18 @@ impl TableView {
         use egui_extras::{TableBuilder, Column};
         
         let text_height = egui::TextStyle::Body.resolve(ui.style()).size * 1.5;
-        let num_rows = data.num_rows().min(self.config.max_rows_displayed);
+        
+        // Update total rows
+        self.total_rows = data.num_rows();
+        
+        // Calculate pagination
+        let total_pages = (self.total_rows + self.config.rows_per_page - 1) / self.config.rows_per_page;
+        self.current_page = self.current_page.clamp(1, total_pages.max(1));
+        
+        let start_row = (self.current_page - 1) * self.config.rows_per_page;
+        let end_row = (start_row + self.config.rows_per_page).min(self.total_rows);
+        let rows_to_display = end_row - start_row;
+        
         let faint_bg_color = ui.style().visuals.faint_bg_color;
         let selection_bg_fill = ui.style().visuals.selection.bg_fill;
         let selection_stroke_color = ui.style().visuals.selection.stroke.color;
@@ -104,6 +125,50 @@ impl TableView {
             })
             .map(|(idx, _)| idx)
             .collect();
+        
+        // Pagination controls at the top
+        ui.horizontal(|ui| {
+            ui.label(format!("Page {} of {}", self.current_page, total_pages));
+            ui.separator();
+            
+            // Previous button
+            ui.add_enabled(self.current_page > 1, egui::Button::new("◀ Previous"))
+                .on_hover_text("Go to previous page")
+                .clicked()
+                .then(|| self.current_page -= 1);
+            
+            // Page input
+            ui.add(egui::DragValue::new(&mut self.current_page)
+                .clamp_range(1..=total_pages)
+                .speed(1.0));
+            
+            // Next button
+            ui.add_enabled(self.current_page < total_pages, egui::Button::new("Next ▶"))
+                .on_hover_text("Go to next page")
+                .clicked()
+                .then(|| self.current_page += 1);
+            
+            ui.separator();
+            
+            // Rows per page
+            ui.label("Rows per page:");
+            egui::ComboBox::from_id_source(format!("rows_per_page_{}", self.id))
+                .selected_text(self.config.rows_per_page.to_string())
+                .show_ui(ui, |ui| {
+                    for &rows in &[10, 25, 50, 100, 250] {
+                        ui.selectable_value(&mut self.config.rows_per_page, rows, rows.to_string());
+                    }
+                });
+            
+            ui.separator();
+            ui.label(format!("Showing {} - {} of {} rows", 
+                start_row + 1, 
+                end_row, 
+                self.total_rows
+            ));
+        });
+        
+        ui.separator();
         
         let mut builder = TableBuilder::new(ui)
             .striped(self.config.striped_rows)
@@ -185,14 +250,17 @@ impl TableView {
                 }
             })
             .body(|body| {
-                body.rows(text_height, num_rows, |row_index, mut row| {
+                body.rows(text_height, rows_to_display, |row_index, mut row| {
+                    // Adjust row index for pagination
+                    let actual_row_index = start_row + row_index;
+                    
                     // Check if any row is hovered in a plot
                     let hover_data = ctx.hovered_data.read();
                     let nav_pos = ctx.navigation.get_context().position.clone();
                     // Calculate actual row number for comparison
                     let actual_row_idx = match nav_pos {
-                        NavigationPosition::Sequential(idx) => idx + row_index,
-                        _ => row_index,
+                        NavigationPosition::Sequential(idx) => idx + actual_row_index,
+                        _ => actual_row_index,
                     };
                     
                     // Check if this row should be highlighted
@@ -216,23 +284,23 @@ impl TableView {
                             }
                             // Show actual navigation position, not local row index
                             let actual_row = match nav_pos {
-                                NavigationPosition::Sequential(idx) => idx + row_index,
-                                NavigationPosition::Temporal(_) => row_index, // For temporal, show relative
-                                NavigationPosition::Categorical(_) => row_index, // For categorical, show relative
+                                NavigationPosition::Sequential(idx) => idx + actual_row_index,
+                                NavigationPosition::Temporal(_) => actual_row_index, // For temporal, show relative
+                                NavigationPosition::Categorical(_) => actual_row_index, // For categorical, show relative
                             };
                             
-                            let response = ui.label(actual_row.to_string());
+                            let response = ui.label((actual_row + 1).to_string()); // 1-based for display
                             
                             // Right-click menu for row selection
                             response.context_menu(|ui| {
-                                ui.label(egui::RichText::new(format!("Row {}", actual_row)).strong());
+                                ui.label(egui::RichText::new(format!("Row {}", actual_row + 1)).strong());
                                 ui.separator();
                                 
                                 if ui.button("📋 Copy Row Data").clicked() {
                                     let mut row_data = Vec::new();
                                     for &col_idx in &visible_column_indices {
                                         let column = data.column(col_idx);
-                                        let value = arrow::util::display::array_value_to_string(column, row_index).unwrap_or_default();
+                                        let value = arrow::util::display::array_value_to_string(column, actual_row_index).unwrap_or_default();
                                         row_data.push(value);
                                     }
                                     ui.output_mut(|o| o.copied_text = row_data.join("\t"));
@@ -254,7 +322,7 @@ impl TableView {
                             }
                             
                             let column = data.column(col_idx);
-                            let value = arrow::util::display::array_value_to_string(column, row_index).unwrap_or_default();
+                            let value = arrow::util::display::array_value_to_string(column, actual_row_index).unwrap_or_default();
                             
                             // Truncate long values
                             let display_value = if value.len() > 50 {
@@ -303,8 +371,8 @@ impl TableView {
 }
 
 impl SpaceView for TableView {
-    fn id(&self) -> &SpaceViewId {
-        &self.id
+    fn id(&self) -> SpaceViewId {
+        self.id
     }
     
     fn display_name(&self) -> &str {
@@ -315,7 +383,44 @@ impl SpaceView for TableView {
         "TableView"
     }
     
+    fn title(&self) -> &str {
+        &self.title
+    }
+    
+    fn set_data_source(&mut self, source_id: String) {
+        self.config.data_source_id = Some(source_id);
+        self.cached_data = None; // Clear cache when source changes
+    }
+    
+    fn data_source_id(&self) -> Option<&str> {
+        self.config.data_source_id.as_deref()
+    }
+    
     fn ui(&mut self, ctx: &ViewerContext, ui: &mut Ui) {
+        // Show data source selector at top
+        ui.horizontal(|ui| {
+            ui.label("Data Source:");
+            
+            let current_source = self.config.data_source_id.as_deref().unwrap_or("None");
+            egui::ComboBox::from_id_source(format!("table_source_{}", self.id))
+                .selected_text(current_source)
+                .show_ui(ui, |ui| {
+                    let data_sources = ctx.data_sources.read();
+                    if data_sources.is_empty() {
+                        ui.label("No data sources loaded");
+                    } else {
+                        for (source_id, _) in data_sources.iter() {
+                            let is_selected = self.config.data_source_id.as_ref() == Some(source_id);
+                            if ui.selectable_label(is_selected, source_id).clicked() {
+                                self.set_data_source(source_id.clone());
+                            }
+                        }
+                    }
+                });
+        });
+        
+        ui.separator();
+        
         // Update data if navigation changed
         let nav_pos = ctx.navigation.get_context().position.clone();
         if self.last_navigation_pos.as_ref() != Some(&nav_pos) {
@@ -374,15 +479,20 @@ impl SpaceView for TableView {
     
     fn save_config(&self) -> Value {
         json!({
+            "data_source_id": self.config.data_source_id,
             "show_row_numbers": self.config.show_row_numbers,
             "sortable_columns": self.config.sortable_columns,
             "resizable_columns": self.config.resizable_columns,
             "striped_rows": self.config.striped_rows,
-            "max_rows_displayed": self.config.max_rows_displayed,
+            "rows_per_page": self.config.rows_per_page,
+            "current_page": self.current_page,
         })
     }
     
     fn load_config(&mut self, config: Value) {
+        if let Some(data_source_id) = config.get("data_source_id").and_then(|v| v.as_str()) {
+            self.config.data_source_id = Some(data_source_id.to_string());
+        }
         if let Some(show_row_numbers) = config.get("show_row_numbers").and_then(|v| v.as_bool()) {
             self.config.show_row_numbers = show_row_numbers;
         }
@@ -395,8 +505,11 @@ impl SpaceView for TableView {
         if let Some(striped) = config.get("striped_rows").and_then(|v| v.as_bool()) {
             self.config.striped_rows = striped;
         }
-        if let Some(max_rows) = config.get("max_rows_displayed").and_then(|v| v.as_u64()) {
-            self.config.max_rows_displayed = max_rows as usize;
+        if let Some(rows_per_page) = config.get("rows_per_page").and_then(|v| v.as_u64()) {
+            self.config.rows_per_page = rows_per_page as usize;
+        }
+        if let Some(current_page) = config.get("current_page").and_then(|v| v.as_u64()) {
+            self.current_page = current_page as usize;
         }
     }
     
@@ -406,5 +519,13 @@ impl SpaceView for TableView {
     
     fn on_frame_update(&mut self, _ctx: &ViewerContext, _dt: f32) {
         // Nothing to update per frame
+    }
+    
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+    
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
     }
 } 

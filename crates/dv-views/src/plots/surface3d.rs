@@ -9,6 +9,7 @@ use crate::{SpaceView, SpaceViewId, SelectionState, ViewerContext};
 /// Configuration for 3D surface plot
 #[derive(Debug, Clone)]
 pub struct Surface3DConfig {
+    pub data_source_id: String,
     pub x_column: String,
     pub y_column: String,
     pub z_column: String,
@@ -18,6 +19,7 @@ pub struct Surface3DConfig {
 impl Default for Surface3DConfig {
     fn default() -> Self {
         Self {
+            data_source_id: String::new(),
             x_column: String::new(),
             y_column: String::new(),
             z_column: String::new(),
@@ -44,7 +46,20 @@ impl Surface3DView {
 }
 
 impl SpaceView for Surface3DView {
-    fn id(&self) -> &SpaceViewId { &self.id }
+    fn id(&self) -> SpaceViewId { self.id }
+
+    fn title(&self) -> &str {
+        &self.title
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+    
     fn display_name(&self) -> &str { &self.title }
     fn view_type(&self) -> &str { "Surface3DView" }
     

@@ -11,6 +11,7 @@ use dv_core::navigation::NavigationPosition;
 /// Bar chart configuration
 #[derive(Debug, Clone)]
 pub struct BarChartConfig {
+    pub data_source_id: String,
     /// Category column (X-axis)
     pub category_column: String,
     
@@ -30,6 +31,7 @@ pub struct BarChartConfig {
 impl Default for BarChartConfig {
     fn default() -> Self {
         Self {
+            data_source_id: String::new(),
             category_column: String::new(),
             value_column: String::new(),
             show_legend: false,
@@ -71,7 +73,9 @@ impl BarChartView {
     
     /// Fetch bar chart data
     fn fetch_data(&mut self, ctx: &ViewerContext) -> Option<BarData> {
-        let data_source = ctx.data_source.read();
+        let data_sources = ctx.data_sources.read();
+
+        let data_source = data_sources.values().next();
         let data_source = data_source.as_ref()?;
         
         // Get navigation context
@@ -129,8 +133,20 @@ impl BarChartView {
 }
 
 impl SpaceView for BarChartView {
-    fn id(&self) -> &SpaceViewId {
-        &self.id
+    fn id(&self) -> SpaceViewId {
+        self.id
+    }
+
+    fn title(&self) -> &str {
+        &self.title
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
     }
     
     fn display_name(&self) -> &str {

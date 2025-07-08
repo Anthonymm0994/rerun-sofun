@@ -15,6 +15,7 @@ use super::utils::stats::{calculate_quartiles, detect_outliers_iqr, zscore_outli
 /// Configuration for anomaly detection view
 #[derive(Clone)]
 pub struct AnomalyDetectionConfig {
+    pub data_source_id: String,
     /// Column to analyze
     pub column: String,
     
@@ -53,6 +54,7 @@ pub enum DetectionMethod {
 impl Default for AnomalyDetectionConfig {
     fn default() -> Self {
         Self {
+            data_source_id: String::new(),
             column: String::new(),
             time_column: None,
             detection_method: DetectionMethod::ZScore,
@@ -108,7 +110,9 @@ impl AnomalyDetectionView {
     
     /// Fetch data and detect anomalies
     fn fetch_data(&mut self, ctx: &ViewerContext) -> Option<AnomalyData> {
-        let data_source = ctx.data_source.read();
+        let data_sources = ctx.data_sources.read();
+
+        let data_source = data_sources.values().next();
         let data_source = data_source.as_ref()?;
         
         // Get navigation context
@@ -447,8 +451,20 @@ impl AnomalyDetectionView {
 }
 
 impl SpaceView for AnomalyDetectionView {
-    fn id(&self) -> &SpaceViewId {
-        &self.id
+    fn id(&self) -> SpaceViewId {
+        self.id
+    }
+
+    fn title(&self) -> &str {
+        &self.title
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
     }
     
     fn display_name(&self) -> &str {

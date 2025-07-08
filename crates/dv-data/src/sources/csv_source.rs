@@ -11,6 +11,13 @@ use parking_lot::RwLock;
 use ahash::AHashMap;
 use dv_core::navigation::{NavigationSpec, NavigationPosition, NavigationRange, NavigationMode};
 use crate::DataError;
+use crate::memory::{MemoryManager, estimate_batch_memory};
+
+/// Performance tuning constants
+const MAX_SAMPLE_ROWS: usize = 5000;  // Increased for better type detection
+const CHUNK_SIZE: usize = 10000;      // Rows per chunk for efficient memory usage
+const MAX_CACHED_CHUNKS: usize = 50;  // Maximum chunks to keep in memory
+const PREFETCH_CHUNKS: usize = 2;     // Number of chunks to prefetch
 
 /// CSV data source for loading and querying CSV files
 pub struct CsvSource {
@@ -22,18 +29,22 @@ pub struct CsvSource {
     pub row_count: usize,
     /// Navigation spec
     navigation_spec: NavigationSpec,
-    /// Cache for loaded data (reserved for future use)
-    _cache: Arc<RwLock<DataCache>>,
+    /// Cache for loaded data
+    cache: Arc<RwLock<DataCache>>,
     /// Detected time column (reserved for future use)
     _time_column: Option<String>,
-    /// Row offsets for seeking (reserved for future use)
-    _row_offsets: Vec<u64>, // Byte offsets for each row
+    /// Row offsets for seeking - stores byte offset for every CHUNK_SIZE rows
+    row_offsets: Vec<u64>,
+    /// Memory manager
+    memory_manager: Arc<MemoryManager>,
 }
 
-/// Data cache for chunk-based loading (reserved for future use)
+/// Data cache for chunk-based loading
 struct DataCache {
-    _chunks: AHashMap<usize, RecordBatch>,
-    _max_chunks: usize,
+    chunks: AHashMap<usize, RecordBatch>,
+    max_chunks: usize,
+    /// LRU tracking for cache eviction
+    access_order: Vec<usize>,
 }
 
 impl CsvSource {
@@ -50,12 +61,14 @@ impl CsvSource {
             schema: Arc::new(schema),
             row_count: row_count,
             navigation_spec,
-            _cache: Arc::new(RwLock::new(DataCache {
-                _chunks: AHashMap::new(),
-                _max_chunks: 100,
+            cache: Arc::new(RwLock::new(DataCache {
+                chunks: AHashMap::new(),
+                max_chunks: 100,
+                access_order: Vec::new(),
             })),
             _time_column: None,
-            _row_offsets: row_offsets,
+            row_offsets: row_offsets,
+            memory_manager: Arc::new(MemoryManager::new()),
         })
     }
     
@@ -65,6 +78,7 @@ impl CsvSource {
             let path = path.to_path_buf();
             move || {
                 let file = File::open(&path)?;
+                let file_size = file.metadata()?.len();
                 let mut reader = BufReader::new(file);
                 let mut csv_reader = ReaderBuilder::new()
                     .has_headers(true)
@@ -73,14 +87,29 @@ impl CsvSource {
                 // Get headers
                 let headers = csv_reader.headers()?.clone();
                 
-                // Sample first 1000 rows to detect types
+                // Sample rows for type detection
                 let mut sample_rows = Vec::new();
-                let row_offsets = vec![0u64];
+                let mut row_offsets = vec![0u64];
                 
-                for result in csv_reader.records().take(1000) {
+                // Read samples for type detection
+                for (idx, result) in csv_reader.records().enumerate() {
                     let record = result?;
-                    sample_rows.push(record.iter().map(|s| s.to_string()).collect::<Vec<_>>());
+                    
+                    // Store sample rows for type detection (up to MAX_SAMPLE_ROWS)
+                    if sample_rows.len() < MAX_SAMPLE_ROWS {
+                        sample_rows.push(record.iter().map(|s| s.to_string()).collect::<Vec<_>>());
+                    }
+                    
+                    // Track byte offsets every CHUNK_SIZE rows for efficient seeking
+                    if (idx + 1) % CHUNK_SIZE == 0 {
+                        // Approximate offset based on file position
+                        let current_offset = (file_size * (idx as u64 + 1)) / (sample_rows.len() as u64 + idx as u64 + 1);
+                        row_offsets.push(current_offset);
+                    }
                 }
+                
+                // Count total rows
+                let total_rows = sample_rows.len() + csv_reader.records().count();
                 
                 // Detect column types
                 let fields = headers.iter().enumerate().map(|(idx, name)| {
@@ -90,13 +119,7 @@ impl CsvSource {
                 
                 let schema = Schema::new(fields);
                 
-                // Count total rows (we've already read sample_rows.len())
-                let mut row_count = sample_rows.len();
-                for _ in csv_reader.records() {
-                    row_count += 1;
-                }
-                
-                Ok((schema, row_count, row_offsets))
+                Ok((schema, total_rows, row_offsets))
             }
         }).await.map_err(|e| DataError::SchemaDetection(e.to_string()))?
     }
@@ -178,126 +201,238 @@ impl CsvSource {
         }
     }
     
-    /// Read a chunk of data from the CSV file
+    /// Read a chunk of data from the CSV file with caching
     async fn read_chunk(&self, start_row: usize, num_rows: usize) -> Result<RecordBatch, DataError> {
+        let chunk_id = start_row / CHUNK_SIZE;
+        
+        // Check cache first
+        {
+            let mut cache = self.cache.write();
+            if let Some(batch) = cache.chunks.get(&chunk_id) {
+                // Clone the batch to avoid borrowing issues
+                let batch_clone = batch.clone();
+                
+                // Update LRU
+                cache.access_order.retain(|&id| id != chunk_id);
+                cache.access_order.push(chunk_id);
+                
+                // Extract the requested range from the cached chunk
+                let chunk_start = chunk_id * CHUNK_SIZE;
+                let offset_in_chunk = start_row - chunk_start;
+                let available_in_chunk = batch_clone.num_rows() - offset_in_chunk;
+                let rows_to_take = num_rows.min(available_in_chunk);
+                
+                return Ok(batch_clone.slice(offset_in_chunk, rows_to_take));
+            }
+        }
+        
+        // Not in cache, load from file
         let path = self.path.clone();
         let schema = self.schema.clone();
+        let chunk_start = chunk_id * CHUNK_SIZE;
+        let chunk_rows = CHUNK_SIZE.min(self.row_count - chunk_start);
         
-        tokio::task::spawn_blocking(move || {
-            let file = File::open(&path)?;
-            let reader = BufReader::new(file);
-            let mut csv_reader = ReaderBuilder::new()
-                .has_headers(true)
-                .from_reader(reader);
+        let batch = tokio::task::spawn_blocking(move || {
+            Self::read_chunk_from_file(&path, schema, chunk_start, chunk_rows)
+        }).await.map_err(|e| DataError::Other(e.to_string()))??;
+        
+        // Estimate memory usage of the new batch
+        let batch_memory = estimate_batch_memory(&batch);
+        
+        // Store in cache with memory-aware eviction
+        {
+            let mut cache = self.cache.write();
             
-            // Skip to start row
-            for _ in 0..start_row {
-                csv_reader.records().next();
-            }
+            // Check if we need to evict based on memory pressure
+            let current_memory: usize = cache.chunks.values()
+                .map(estimate_batch_memory)
+                .sum();
             
-            // Read the requested rows
-            let mut columns: Vec<ArrayRef> = Vec::new();
-            let mut row_data: Vec<Vec<String>> = Vec::new();
+            // Update memory stats
+            self.memory_manager.update_cache_memory(
+                current_memory + batch_memory,
+                cache.chunks.len() + 1
+            );
             
-            for (i, result) in csv_reader.records().enumerate() {
-                if i >= num_rows {
-                    break;
-                }
-                
-                let record = result?;
-                row_data.push(record.iter().map(|s| s.to_string()).collect());
-            }
-            
-            // Build arrow arrays for each column
-            for (col_idx, field) in schema.fields().iter().enumerate() {
-                let array: ArrayRef = match field.data_type() {
-                    DataType::Int64 => {
-                        let mut builder = Int64Builder::new();
-                        for row in &row_data {
-                            if let Some(value) = row.get(col_idx) {
-                                if value.is_empty() {
-                                    builder.append_null();
-                                } else if let Ok(v) = value.parse::<i64>() {
-                                    builder.append_value(v);
-                                } else {
-                                    builder.append_null();
-                                }
-                            } else {
-                                builder.append_null();
-                            }
-                        }
-                        Arc::new(builder.finish())
-                    }
-                    DataType::Float64 => {
-                        let mut builder = Float64Builder::new();
-                        for row in &row_data {
-                            if let Some(value) = row.get(col_idx) {
-                                if value.is_empty() {
-                                    builder.append_null();
-                                } else if let Ok(v) = value.parse::<f64>() {
-                                    builder.append_value(v);
-                                } else {
-                                    builder.append_null();
-                                }
-                            } else {
-                                builder.append_null();
-                            }
-                        }
-                        Arc::new(builder.finish())
-                    }
-                    DataType::Utf8 => {
-                        let mut builder = StringBuilder::new();
-                        for row in &row_data {
-                            if let Some(value) = row.get(col_idx) {
-                                if value.is_empty() {
-                                    builder.append_null();
-                                } else {
-                                    builder.append_value(value);
-                                }
-                            } else {
-                                builder.append_null();
-                            }
-                        }
-                        Arc::new(builder.finish())
-                    }
-                    DataType::Timestamp(_, _) => {
-                        // Simple timestamp parsing - would need proper implementation
-                        let mut builder = TimestampMillisecondBuilder::new();
-                        for row in &row_data {
-                            if let Some(value) = row.get(col_idx) {
-                                if value.is_empty() {
-                                    builder.append_null();
-                                } else if let Ok(v) = value.parse::<i64>() {
-                                    builder.append_value(v);
-                                } else {
-                                    // Try parsing as date string
-                                    builder.append_null(); // TODO: Proper date parsing
-                                }
-                            } else {
-                                builder.append_null();
-                            }
-                        }
-                        Arc::new(builder.finish())
-                    }
-                    _ => {
-                        // Default to string
-                        let mut builder = StringBuilder::new();
-                        for row in &row_data {
-                            if let Some(value) = row.get(col_idx) {
-                                builder.append_value(value);
-                            } else {
-                                builder.append_null();
-                            }
-                        }
-                        Arc::new(builder.finish())
-                    }
+            // Evict if necessary
+            if self.memory_manager.should_evict() || cache.chunks.len() >= cache.max_chunks {
+                // Evict based on LRU and memory usage
+                let chunks_to_evict = if cache.access_order.len() > 0 {
+                    // Calculate how many chunks to evict
+                    let target_evict = ((cache.chunks.len() + 1).saturating_sub(cache.max_chunks / 2)).max(1);
+                    
+                    // Get the least recently used chunks
+                    let evict_count = target_evict.min(cache.access_order.len());
+                    let chunks_to_remove: Vec<usize> = cache.access_order
+                        .drain(..evict_count)
+                        .collect();
+                    
+                    chunks_to_remove
+                } else {
+                    vec![]
                 };
                 
-                columns.push(array);
+                // Remove evicted chunks
+                for chunk_id in chunks_to_evict {
+                    cache.chunks.remove(&chunk_id);
+                }
             }
             
-            RecordBatch::try_new(schema, columns).map_err(|e| e.into())
-        }).await.map_err(|e| DataError::SchemaDetection(e.to_string()))?
+            cache.chunks.insert(chunk_id, batch.clone());
+            cache.access_order.push(chunk_id);
+            
+            // Update memory stats after eviction
+            let new_memory: usize = cache.chunks.values()
+                .map(estimate_batch_memory)
+                .sum();
+            self.memory_manager.update_cache_memory(new_memory, cache.chunks.len());
+        }
+        
+        // Extract the requested range
+        let offset_in_chunk = start_row - chunk_start;
+        let available_in_chunk = batch.num_rows() - offset_in_chunk;
+        let rows_to_take = num_rows.min(available_in_chunk);
+        
+        Ok(batch.slice(offset_in_chunk, rows_to_take))
+    }
+    
+    /// Read a chunk directly from file
+    fn read_chunk_from_file(path: &Path, schema: Arc<Schema>, start_row: usize, num_rows: usize) -> Result<RecordBatch, DataError> {
+        let file = File::open(path)?;
+        let reader = BufReader::new(file);
+        let mut csv_reader = ReaderBuilder::new()
+            .has_headers(true)
+            .from_reader(reader);
+        
+        // Skip to start row
+        for _ in 0..=start_row {  // +1 for header
+            csv_reader.records().next();
+        }
+        
+        // Read the requested rows
+        let mut columns: Vec<ArrayRef> = Vec::new();
+        let mut row_data: Vec<Vec<String>> = Vec::new();
+        
+        for (i, result) in csv_reader.records().enumerate() {
+            if i >= num_rows {
+                break;
+            }
+            
+            let record = result?;
+            row_data.push(record.iter().map(|s| s.to_string()).collect());
+        }
+        
+        // Build arrow arrays for each column
+        for (col_idx, field) in schema.fields().iter().enumerate() {
+            let array: ArrayRef = match field.data_type() {
+                DataType::Int64 => {
+                    let mut builder = Int64Builder::new();
+                    for row in &row_data {
+                        if let Some(value) = row.get(col_idx) {
+                            if value.is_empty() {
+                                builder.append_null();
+                            } else if let Ok(v) = value.parse::<i64>() {
+                                builder.append_value(v);
+                            } else {
+                                builder.append_null();
+                            }
+                        } else {
+                            builder.append_null();
+                        }
+                    }
+                    Arc::new(builder.finish())
+                }
+                DataType::Float64 => {
+                    let mut builder = Float64Builder::new();
+                    for row in &row_data {
+                        if let Some(value) = row.get(col_idx) {
+                            if value.is_empty() {
+                                builder.append_null();
+                            } else if let Ok(v) = value.parse::<f64>() {
+                                builder.append_value(v);
+                            } else {
+                                builder.append_null();
+                            }
+                        } else {
+                            builder.append_null();
+                        }
+                    }
+                    Arc::new(builder.finish())
+                }
+                DataType::Utf8 => {
+                    let mut builder = StringBuilder::new();
+                    for row in &row_data {
+                        if let Some(value) = row.get(col_idx) {
+                            if value.is_empty() {
+                                builder.append_null();
+                            } else {
+                                builder.append_value(value);
+                            }
+                        } else {
+                            builder.append_null();
+                        }
+                    }
+                    Arc::new(builder.finish())
+                }
+                DataType::Boolean => {
+                    let mut builder = BooleanBuilder::new();
+                    for row in &row_data {
+                        if let Some(value) = row.get(col_idx) {
+                            if value.is_empty() {
+                                builder.append_null();
+                            } else {
+                                let lower = value.to_lowercase();
+                                if lower == "true" || lower == "1" || lower == "yes" {
+                                    builder.append_value(true);
+                                } else if lower == "false" || lower == "0" || lower == "no" {
+                                    builder.append_value(false);
+                                } else {
+                                    builder.append_null();
+                                }
+                            }
+                        } else {
+                            builder.append_null();
+                        }
+                    }
+                    Arc::new(builder.finish())
+                }
+                DataType::Timestamp(_, _) => {
+                    // Simple timestamp parsing - would need proper implementation
+                    let mut builder = TimestampMillisecondBuilder::new();
+                    for row in &row_data {
+                        if let Some(value) = row.get(col_idx) {
+                            if value.is_empty() {
+                                builder.append_null();
+                            } else if let Ok(v) = value.parse::<i64>() {
+                                builder.append_value(v);
+                            } else {
+                                // Try parsing as date string
+                                builder.append_null(); // TODO: Proper date parsing
+                            }
+                        } else {
+                            builder.append_null();
+                        }
+                    }
+                    Arc::new(builder.finish())
+                }
+                _ => {
+                    // Default to string
+                    let mut builder = StringBuilder::new();
+                    for row in &row_data {
+                        if let Some(value) = row.get(col_idx) {
+                            builder.append_value(value);
+                        } else {
+                            builder.append_null();
+                        }
+                    }
+                    Arc::new(builder.finish())
+                }
+            };
+            
+            columns.push(array);
+        }
+        
+        RecordBatch::try_new(schema, columns).map_err(|e| e.into())
     }
 }
 
@@ -329,8 +464,8 @@ impl dv_core::data::DataSource for CsvSource {
             }
         };
         
-        // Query a window around the position
-        let window_size = 1000;
+        // Query a smaller window for better performance
+        let window_size = CHUNK_SIZE / 2;
         let start = row_idx.saturating_sub(window_size / 2);
         let end = (row_idx + window_size / 2).min(self.row_count);
         
@@ -343,7 +478,11 @@ impl dv_core::data::DataSource for CsvSource {
             _ => return Err(DataError::InvalidPosition.into()),
         };
         
-        self.read_chunk(start, end - start).await.map_err(|e| e.into())
+        // For large ranges, limit to a reasonable size
+        let max_range = CHUNK_SIZE * 2;
+        let actual_end = end.min(start + max_range);
+        
+        self.read_chunk(start, actual_end - start).await.map_err(|e| e.into())
     }
     
     async fn row_count(&self) -> anyhow::Result<usize> {

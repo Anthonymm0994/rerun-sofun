@@ -1062,6 +1062,7 @@ dependencies = [
  "arrow",
  "async-trait",
  "chrono",
+ "csv",
  "dv-core",
  "dv-data",
  "dv-templates",
@@ -1090,13 +1091,9 @@ dependencies = [
  "anyhow",
  "arrow",
  "async-trait",
- "chrono",
- "indexmap 2.10.0",
- "num_cpus",
  "parking_lot",
  "serde",
- "thiserror 1.0.69",
- "tracing",
+ "tokio",
  "uuid",
 ]
 

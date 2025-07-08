@@ -10,19 +10,22 @@ use crate::{SpaceView, SpaceViewId, SelectionState, ViewerContext};
 use dv_core::navigation::NavigationPosition;
 use super::utils::stats::calculate_quartiles;
 
-/// Configuration for box plot view
-#[derive(Clone)]
+/// Configuration for box plot
+#[derive(Debug, Clone)]
 pub struct BoxPlotConfig {
-    /// Category column (X-axis)
-    pub category_column: Option<String>,
+    /// Data source ID
+    pub data_source_id: Option<String>,
     
-    /// Value column (Y-axis)
+    /// Value column to plot
     pub value_column: String,
+    
+    /// Optional grouping column for multiple box plots
+    pub category_column: Option<String>,
     
     /// Whether to show outliers
     pub show_outliers: bool,
     
-    /// Whether to show mean
+    /// Whether to show mean marker
     pub show_mean: bool,
     
     /// Box width
@@ -41,8 +44,9 @@ pub struct BoxPlotConfig {
 impl Default for BoxPlotConfig {
     fn default() -> Self {
         Self {
-            category_column: None,
+            data_source_id: None,
             value_column: String::new(),
+            category_column: None,
             show_outliers: true,
             show_mean: true,
             box_width: 0.5,
@@ -94,9 +98,11 @@ impl BoxPlotView {
     }
     
     /// Fetch box plot data
-    fn fetch_data(&mut self, ctx: &ViewerContext) -> Option<BoxPlotData> {
-        let data_source = ctx.data_source.read();
-        let data_source = data_source.as_ref()?;
+    fn fetch_data(&mut self, ctx: &ViewerContext) -> Option<Vec<BoxPlotData>> {
+        // Get the specific data source for this view
+        let source_id = self.config.data_source_id.as_ref()?;
+        let data_sources = ctx.data_sources.read();
+        let data_source = data_sources.get(source_id)?;
         
         // Get navigation context
         let nav_context = ctx.navigation.get_context();
@@ -126,10 +132,10 @@ impl BoxPlotView {
         // If no category column, treat all data as one category
         if self.config.category_column.is_none() {
             let stats = self.calculate_box_stats(&values)?;
-            return Some(BoxPlotData {
+            return Some(vec![BoxPlotData {
                 categories: vec!["All Data".to_string()],
                 box_stats: vec![stats],
-            });
+            }]);
         }
         
         // Group by category
@@ -154,10 +160,10 @@ impl BoxPlotView {
         
         sorted_categories.sort_by(|a, b| a.0.cmp(&b.0));
         
-        Some(BoxPlotData {
+        Some(vec![BoxPlotData {
             categories: sorted_categories.iter().map(|(c, _)| c.clone()).collect(),
             box_stats: sorted_categories.into_iter().map(|(_, s)| s).collect(),
-        })
+        }])
     }
     
     fn calculate_box_stats(&self, values: &[f64]) -> Option<BoxStats> {
@@ -285,10 +291,22 @@ impl BoxPlotView {
 }
 
 impl SpaceView for BoxPlotView {
-    fn id(&self) -> &SpaceViewId {
-        &self.id
+    fn id(&self) -> SpaceViewId {
+        self.id
     }
-    
+
+    fn title(&self) -> &str {
+        &self.title
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+
     fn display_name(&self) -> &str {
         &self.title
     }
@@ -297,11 +315,44 @@ impl SpaceView for BoxPlotView {
         "BoxPlotView"
     }
     
+    fn set_data_source(&mut self, source_id: String) {
+        self.config.data_source_id = Some(source_id);
+        self.cached_data = None;
+    }
+    
+    fn data_source_id(&self) -> Option<&str> {
+        self.config.data_source_id.as_deref()
+    }
+    
     fn ui(&mut self, ctx: &ViewerContext, ui: &mut Ui) {
+        // Show data source selector at top
+        ui.horizontal(|ui| {
+            ui.label("Data Source:");
+            
+            let current_source = self.config.data_source_id.as_deref().unwrap_or("None");
+            egui::ComboBox::from_id_source(format!("boxplot_source_{}", self.id))
+                .selected_text(current_source)
+                .show_ui(ui, |ui| {
+                    let data_sources = ctx.data_sources.read();
+                    if data_sources.is_empty() {
+                        ui.label("No data sources loaded");
+                    } else {
+                        for (source_id, _) in data_sources.iter() {
+                            let is_selected = self.config.data_source_id.as_ref() == Some(source_id);
+                            if ui.selectable_label(is_selected, source_id).clicked() {
+                                self.set_data_source(source_id.clone());
+                            }
+                        }
+                    }
+                });
+        });
+        
+        ui.separator();
+        
         // Update data if navigation changed
         let nav_pos = ctx.navigation.get_context().position.clone();
         if self.last_navigation_pos.as_ref() != Some(&nav_pos) {
-            self.cached_data = self.fetch_data(ctx);
+            self.cached_data = self.fetch_data(ctx).and_then(|v| v.into_iter().next());
             self.last_navigation_pos = Some(nav_pos);
         }
         
@@ -339,8 +390,9 @@ impl SpaceView for BoxPlotView {
     
     fn save_config(&self) -> Value {
         json!({
-            "category_column": self.config.category_column,
+            "data_source_id": self.config.data_source_id,
             "value_column": self.config.value_column,
+            "category_column": self.config.category_column,
             "show_outliers": self.config.show_outliers,
             "show_mean": self.config.show_mean,
             "box_width": self.config.box_width,
@@ -351,11 +403,14 @@ impl SpaceView for BoxPlotView {
     }
     
     fn load_config(&mut self, config: Value) {
-        if let Some(cat_col) = config.get("category_column").and_then(|v| v.as_str()) {
-            self.config.category_column = Some(cat_col.to_string());
+        if let Some(data_source_id) = config.get("data_source_id").and_then(|v| v.as_str()) {
+            self.config.data_source_id = Some(data_source_id.to_string());
         }
         if let Some(val_col) = config.get("value_column").and_then(|v| v.as_str()) {
             self.config.value_column = val_col.to_string();
+        }
+        if let Some(cat_col) = config.get("category_column").and_then(|v| v.as_str()) {
+            self.config.category_column = Some(cat_col.to_string());
         }
         if let Some(show_outliers) = config.get("show_outliers").and_then(|v| v.as_bool()) {
             self.config.show_outliers = show_outliers;

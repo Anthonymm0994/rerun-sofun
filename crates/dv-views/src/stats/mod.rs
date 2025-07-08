@@ -61,8 +61,8 @@ impl SummaryStatsView {
     
     /// Calculate statistics for the current data
     fn calculate_stats(&mut self, ctx: &ViewerContext) -> Option<Vec<ColumnStats>> {
-        let data_source = ctx.data_source.read();
-        let data_source = data_source.as_ref()?;
+        let data_sources = ctx.data_sources.read();
+        let data_source = data_sources.values().next()?;
         
         // Get current navigation position
         let _nav_pos = ctx.navigation.get_context().position.clone();
@@ -196,8 +196,20 @@ impl SummaryStatsView {
 }
 
 impl SpaceView for SummaryStatsView {
-    fn id(&self) -> &SpaceViewId {
-        &self.id
+    fn id(&self) -> SpaceViewId {
+        self.id
+    }
+    
+    fn title(&self) -> &str {
+        &self.title
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
     }
     
     fn display_name(&self) -> &str {

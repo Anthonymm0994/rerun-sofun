@@ -112,7 +112,19 @@ impl StreamGraph {
 }
 
 impl SpaceView for StreamGraph {
-    fn id(&self) -> &SpaceViewId { &self.id }
+    fn id(&self) -> SpaceViewId { self.id }
+    fn title(&self) -> &str {
+        &self.title
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+    
     fn display_name(&self) -> &str { &self.title }
     fn view_type(&self) -> &str { "StreamGraphView" }
     

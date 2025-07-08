@@ -5,28 +5,33 @@ use parking_lot::RwLock;
 use eframe::egui::{self, Ui, Vec2, Color32, Rounding, Stroke};
 use tracing::{info, error};
 use uuid::Uuid;
+use std::collections::HashMap;
+use arrow::array::{Float64Array, Float32Array, Int64Array, Int32Array, Array};
 
 use dv_views::{
     Viewport, ViewerContext, TimeControl, HoveredData, FrameTime,
-    TimeSeriesView, TableView, ScatterPlotView, SpaceView, SummaryStatsView
+    TimeSeriesView, TableView, SpaceView, SummaryStatsView,
+    plots::ScatterPlotView
 };
 use dv_core::{
     data::DataSource,
     navigation::{NavigationEngine, NavigationSpec, NavigationMode},
 };
 use dv_ui::{NavigationPanel, AppShell, Theme};
-use dv_data::sources::{CsvSource, SqliteSource, CombinedCsvSource};
-use arrow::array::{Float64Array, Float32Array, Int64Array, Int32Array, Array};
+use dv_data::sources::{SqliteSource, CombinedCsvSource};
 
 mod demo;
 mod create_sample_db;
 mod view_builder;
 mod frog_animation;
 mod demo_overlay;
+mod file_config_dialog;
 
 use view_builder::ViewBuilderDialog;
 use frog_animation::FrogMascot;
 use demo_overlay::DemoOverlay;
+use file_config_dialog::FileConfigDialog;
+
 
 /// Create default views based on schema analysis
 fn create_default_views_for_schema(schema: &arrow::datatypes::Schema) -> Vec<Box<dyn SpaceView>> {
@@ -302,6 +307,15 @@ struct FrogApp {
     
     /// Loading state
     is_loading: Arc<RwLock<bool>>,
+    
+    /// Flag to open dashboard builder when data is loaded
+    open_builder_on_load: bool,
+    
+    /// Data source selection dialog
+    dashboard_builder: ViewBuilderDialog,
+
+    /// File configuration dialog
+    file_config_dialog: Option<FileConfigDialog>,
 }
 
 impl FrogApp {
@@ -314,7 +328,7 @@ impl FrogApp {
         
         // Create shared viewer context
         let viewer_context = Arc::new(ViewerContext {
-            data_source: Arc::new(RwLock::new(None)),
+            data_sources: Arc::new(RwLock::new(HashMap::new())),
             navigation: Arc::new(NavigationEngine::new(NavigationMode::Sequential)),
             time_control: Arc::new(RwLock::new(TimeControl::default())),
             hovered_data: Arc::new(RwLock::new(HoveredData::default())),
@@ -335,6 +349,9 @@ impl FrogApp {
         // Create app shell
         let app_shell = AppShell::new();
         
+        // Get runtime handle for file config dialog
+        let _runtime_handle = runtime.handle().clone();
+        
         Self {
             viewport,
             viewer_context,
@@ -351,6 +368,9 @@ impl FrogApp {
             sqlite_table_selection: None,
             show_summary_stats: false,
             is_loading: Arc::new(RwLock::new(false)),
+            open_builder_on_load: false,
+            dashboard_builder: ViewBuilderDialog::new_multi(Vec::new()),
+            file_config_dialog: None,
         }
     }
     
@@ -359,7 +379,7 @@ impl FrogApp {
         use crate::demo::DemoDataSource;
         
         // Clear any existing state when switching demos
-        *self.viewer_context.data_source.write() = None;
+        *self.viewer_context.data_sources.write() = HashMap::new();
         self.viewport = Viewport::new();
         
         // Clear hover data and selection state
@@ -381,7 +401,9 @@ impl FrogApp {
         }
         
         // Set it as the current data source
-        *self.viewer_context.data_source.write() = Some(demo_source);
+        let mut sources = HashMap::new();
+        sources.insert(Uuid::new_v4().to_string(), demo_source as Box<dyn DataSource>);
+        *self.viewer_context.data_sources.write() = sources;
         
         // Create appropriate views based on the example
         let views = match example {
@@ -401,37 +423,15 @@ impl FrogApp {
     fn open_csv_file(&mut self, path: std::path::PathBuf) {
         info!("Opening CSV file: {:?}", path);
         
-        // Set loading state
-        *self.is_loading.write() = true;
+        // Create file configuration dialog
+        let mut config_manager = dv_data::config::FileConfigManager::new();
         
-        let source_future = CsvSource::new(path.clone());
+        // Create FileConfig
+        let config = dv_data::config::FileConfig::new(path, dv_data::config::FileType::Csv);
+        config_manager.add_file(config);
         
-        let ctx = self.egui_ctx.clone();
-        let viewer_context = self.viewer_context.clone();
-        let runtime = self.runtime.handle().clone();
-        let is_loading = self.is_loading.clone();
-        
-        runtime.spawn(async move {
-            match source_future.await {
-                Ok(source) => {
-                    // Update navigation spec
-                    if let Ok(spec) = source.navigation_spec().await {
-                        viewer_context.navigation.update_spec(spec);
-                    }
-                    
-                    // Update data source
-                    *viewer_context.data_source.write() = Some(Box::new(source) as Box<dyn DataSource>);
-                    
-                    *is_loading.write() = false;
-                    ctx.request_repaint();
-                }
-                Err(e) => {
-                    error!("Failed to open CSV file: {}", e);
-                    *is_loading.write() = false;
-                    ctx.request_repaint();
-                }
-            }
-        });
+        // Show the file configuration dialog
+        self.file_config_dialog = Some(FileConfigDialog::new(config_manager, self.runtime.handle().clone()));
     }
     
     /// Open multiple CSV files as a combined data source
@@ -457,7 +457,7 @@ impl FrogApp {
                     }
                     
                     // Update data source
-                    *viewer_context.data_source.write() = Some(Box::new(source) as Box<dyn DataSource>);
+                    *viewer_context.data_sources.write() = HashMap::from([(Uuid::new_v4().to_string(), Box::new(source) as Box<dyn DataSource>)]);
                     
                     *is_loading.write() = false;
                     ctx.request_repaint();
@@ -473,28 +473,17 @@ impl FrogApp {
     
     /// Open a SQLite database file
     fn open_sqlite_file(&mut self, path: std::path::PathBuf) {
-        // For simplicity, open the first table found
-        // In a real app, we'd show a table selection dialog
-        if let Ok(conn) = rusqlite::Connection::open(&path) {
-            if let Ok(mut stmt) = conn.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'") {
-                if let Ok(tables) = stmt.query_map([], |row| row.get::<_, String>(0)) {
-                    let table_names: Vec<String> = tables.filter_map(Result::ok).collect();
-                    
-                    if table_names.is_empty() {
-                        error!("No tables found in SQLite database");
-                        return;
-                    }
-                    
-                    if table_names.len() == 1 {
-                        // Only one table, open it directly
-                        self.open_sqlite_table(path, &table_names[0]);
-                    } else {
-                        // Multiple tables, show selection dialog
-                        self.show_table_selection_dialog(path, table_names);
-                    }
-                }
-            }
-        }
+        info!("Opening SQLite file: {:?}", path);
+        
+        // Create file configuration dialog
+        let mut config_manager = dv_data::config::FileConfigManager::new();
+        
+        // Create FileConfig
+        let config = dv_data::config::FileConfig::new(path, dv_data::config::FileType::Sqlite);
+        config_manager.add_file(config);
+        
+        // Show the file configuration dialog
+        self.file_config_dialog = Some(FileConfigDialog::new(config_manager, self.runtime.handle().clone()));
     }
     
     /// Show a dialog for selecting which SQLite table to open
@@ -523,12 +512,101 @@ impl FrogApp {
                     }
                     
                     // Update data source
-                    *viewer_context.data_source.write() = Some(Box::new(source) as Box<dyn DataSource>);
+                    *viewer_context.data_sources.write() = HashMap::from([(Uuid::new_v4().to_string(), Box::new(source) as Box<dyn DataSource>)]);
                     
                     ctx.request_repaint();
                 }
                 Err(e) => {
                     error!("Failed to open SQLite table: {}", e);
+                }
+            }
+        });
+    }
+    
+    /// Load files based on configuration
+    fn load_configured_files(&mut self, config_manager: dv_data::config::FileConfigManager) {
+        use dv_data::config::FileType;
+        
+        // Load each file as a separate data source
+        for (_path, config) in config_manager.configs {
+            let source_id = config.file_name();
+            
+            match config.file_type {
+                FileType::Csv => {
+                    self.load_configured_csv(source_id, config);
+                }
+                FileType::Sqlite => {
+                    // Handle SQLite files
+                    if let Some(table_name) = config.selected_columns.iter().next() {
+                        let table_id = format!("{}:{}", source_id, table_name);
+                        self.load_configured_sqlite(table_id, config.clone(), table_name.clone());
+                    }
+                }
+            }
+        }
+    }
+    
+    /// Load a single configured CSV file
+    fn load_configured_csv(&mut self, source_id: String, config: dv_data::config::FileConfig) {
+        info!("Loading configured CSV: {} from {:?}", source_id, config.path);
+        
+        // Set loading state
+        *self.is_loading.write() = true;
+        
+        let ctx = self.egui_ctx.clone();
+        let viewer_context = self.viewer_context.clone();
+        let runtime = self.runtime.handle().clone();
+        let is_loading = self.is_loading.clone();
+        
+        runtime.spawn(async move {
+            match dv_data::sources::ConfiguredCsvSource::new(config).await {
+                Ok(source) => {
+                    // Add to data sources map
+                    viewer_context.data_sources.write().insert(
+                        source_id,
+                        Box::new(source) as Box<dyn DataSource>
+                    );
+                    
+                    *is_loading.write() = false;
+                    ctx.request_repaint();
+                }
+                Err(e) => {
+                    error!("Failed to load configured CSV: {}", e);
+                    *is_loading.write() = false;
+                    ctx.request_repaint();
+                }
+            }
+        });
+    }
+    
+    /// Load a configured SQLite table
+    fn load_configured_sqlite(&mut self, source_id: String, config: dv_data::config::FileConfig, table_name: String) {
+        info!("Loading configured SQLite table: {} from {:?}", table_name, config.path);
+        
+        // Set loading state
+        *self.is_loading.write() = true;
+        
+        let ctx = self.egui_ctx.clone();
+        let viewer_context = self.viewer_context.clone();
+        let runtime = self.runtime.handle().clone();
+        let is_loading = self.is_loading.clone();
+        
+        runtime.spawn(async move {
+            match SqliteSource::new(config.path, table_name).await {
+                Ok(source) => {
+                    // Add to data sources map
+                    viewer_context.data_sources.write().insert(
+                        source_id,
+                        Box::new(source) as Box<dyn DataSource>
+                    );
+                    
+                    *is_loading.write() = false;
+                    ctx.request_repaint();
+                }
+                Err(e) => {
+                    error!("Failed to load SQLite table: {}", e);
+                    *is_loading.write() = false;
+                    ctx.request_repaint();
                 }
             }
         });
@@ -559,7 +637,7 @@ impl FrogApp {
                             if ui.button(
                                 egui::RichText::new("🏠 Home").color(Color32::WHITE)
                             ).on_hover_text("Return to welcome screen (Press H)").clicked() {
-                                *self.viewer_context.data_source.write() = None;
+                                *self.viewer_context.data_sources.write() = HashMap::new();
                                 self.viewport = Viewport::new();
                                 self.demo_mode = false;
                                 self.view_builder = None;
@@ -579,35 +657,42 @@ impl FrogApp {
                             ui.separator();
                             
                             if ui.button(
-                                egui::RichText::new("📂 Open CSV...").color(Color32::WHITE)
-                            ).on_hover_text("Browse for CSV files").clicked() {
+                                egui::RichText::new("📂 Open File(s)...").color(Color32::WHITE)
+                            ).on_hover_text("Browse for CSV or SQLite files").clicked() {
                                 if let Some(paths) = rfd::FileDialog::new()
+                                    .add_filter("Data Files", &["csv", "db", "sqlite", "sqlite3"])
                                     .add_filter("CSV Files", &["csv"])
-                                    .pick_files()  // Changed from pick_file to pick_files
-                                {
-                                    // Handle multiple files
-                                    if paths.len() == 1 {
-                                        self.open_csv_file(paths[0].clone());
-                                    } else if paths.len() > 1 {
-                                        self.open_multiple_csv_files(paths);
-                                    }
-                                }
-                                ui.close_menu();
-                            }
-                            
-                            if ui.button(
-                                egui::RichText::new("🗄️ Open SQLite...").color(Color32::WHITE)
-                            ).clicked() {
-                                if let Some(path) = rfd::FileDialog::new()
                                     .add_filter("SQLite Database", &["db", "sqlite", "sqlite3"])
-                                    .pick_file()
+                                    .pick_files()
                                 {
-                                    self.open_sqlite_file(path);
+                                    // Create file configuration dialog for all selected files
+                                    let mut config_manager = dv_data::config::FileConfigManager::new();
+                                    
+                                    for path in paths {
+                                        let file_type = if path.extension()
+                                            .and_then(|ext| ext.to_str())
+                                            .map(|ext| ext.eq_ignore_ascii_case("db") || ext.eq_ignore_ascii_case("sqlite") || ext.eq_ignore_ascii_case("sqlite3"))
+                                            .unwrap_or(false)
+                                        {
+                                            dv_data::config::FileType::Sqlite
+                                        } else {
+                                            dv_data::config::FileType::Csv
+                                        };
+                                        
+                                        // Add file to configuration manager
+                                        let config = dv_data::config::FileConfig::new(path, file_type);
+                                        config_manager.add_file(config);
+                                    }
+                                    
+                                    // Show file configuration dialog
+                                    if !config_manager.configs.is_empty() {
+                                        info!("Creating FileConfigDialog with {} files", config_manager.configs.len());
+                                        self.file_config_dialog = Some(FileConfigDialog::new(config_manager, self.runtime.handle().clone()));
+                                        info!("FileConfigDialog created successfully");
+                                    }
+                                    ui.close_menu();
                                 }
-                                ui.close_menu();
                             }
-                            
-                            ui.separator();
                             
                             if ui.button(
                                 egui::RichText::new("🚪 Exit").color(Color32::WHITE)
@@ -621,17 +706,72 @@ impl FrogApp {
                         egui::RichText::new("View").color(Color32::WHITE).size(14.0),
                         |ui| {
                             // Only show Dashboard Builder if data is loaded
-                            let has_data = self.viewer_context.data_source.read().is_some();
+                            let has_data = !self.viewer_context.data_sources.read().is_empty();
                             
                             ui.add_enabled_ui(has_data, |ui| {
                                 if ui.button(
                                     egui::RichText::new("🎨 Dashboard Builder...").color(if has_data { Color32::WHITE } else { Color32::from_gray(140) })
                                 ).on_hover_text(if has_data { "Build custom dashboards from your data (Press B)" } else { "Load data first to build dashboards" }).clicked() {
-                                    if let Some(data_source) = &*self.viewer_context.data_source.read() {
-                                        let schema = self.runtime.block_on(data_source.schema());
-                                        info!("Creating ViewBuilderDialog from menu");
-                                        self.view_builder = Some(ViewBuilderDialog::new(schema));
+                                    // Collect all data sources and schemas
+                                    let data_sources = self.viewer_context.data_sources.read();
+                                    let mut sources_with_schemas = Vec::new();
+                                    
+                                    for (id, source) in data_sources.iter() {
+                                        let schema = self.runtime.block_on(source.schema());
+                                        sources_with_schemas.push((id.clone(), schema));
                                     }
+                                    
+                                    if !sources_with_schemas.is_empty() {
+                                        info!("Creating ViewBuilderDialog with {} data sources", sources_with_schemas.len());
+                                        self.view_builder = Some(ViewBuilderDialog::new_multi(sources_with_schemas));
+                                    }
+                                    ui.close_menu();
+                                }
+                            });
+                            
+                            // Revisit file configuration
+                            ui.add_enabled_ui(has_data, |ui| {
+                                if ui.button(
+                                    egui::RichText::new("⚙️ Revisit File Configuration...").color(if has_data { Color32::WHITE } else { Color32::from_gray(140) })
+                                ).on_hover_text(if has_data { "Modify column selection and data types for loaded files" } else { "Load data first to configure" }).clicked() {
+                                    // Create a new FileConfigManager from existing data sources
+                                    let mut config_manager = dv_data::config::FileConfigManager::new();
+                                    
+                                    // Get the first data source info to recreate config
+                                    // Note: This is a simplified approach - in production you might want to store original configs
+                                    let data_sources = self.viewer_context.data_sources.read();
+                                    
+                                    if let Some((source_id, source)) = data_sources.iter().next() {
+                                        // Try to guess the file path from source name
+                                        let source_name = source.source_name();
+                                        let schema = self.runtime.block_on(source.schema());
+                                        
+                                        // Create a basic config based on current schema
+                                        let path = std::path::PathBuf::from(source_name);
+                                        let file_type = if source_name.ends_with(".db") || source_name.ends_with(".sqlite") {
+                                            dv_data::config::FileType::Sqlite
+                                        } else {
+                                            dv_data::config::FileType::Csv
+                                        };
+                                        
+                                        let mut config = dv_data::config::FileConfig::new(path, file_type);
+                                        
+                                        // Populate with current columns
+                                        for field in schema.fields() {
+                                            config.selected_columns.insert(field.name().to_string());
+                                            config.detected_columns.push(field.name().to_string());
+                                            config.column_types.insert(
+                                                field.name().to_string(),
+                                                field.data_type().clone().into()
+                                            );
+                                        }
+                                        
+                                        config.is_loaded = true;
+                                        config_manager.add_file(config);
+                                    }
+                                    
+                                    // Show file configuration dialog
+                                    self.file_config_dialog = Some(FileConfigDialog::new(config_manager, self.runtime.handle().clone()));
                                     ui.close_menu();
                                 }
                             });
@@ -733,7 +873,7 @@ impl FrogApp {
                         ui.separator();
                         
                         // Show current data source if loaded
-                        if let Some(data_source) = &*self.viewer_context.data_source.read() {
+                        if let Some(data_source) = self.viewer_context.data_sources.read().values().next() {
                             ui.label(
                                 egui::RichText::new(data_source.source_name())
                                     .color(Color32::from_gray(200))
@@ -745,22 +885,6 @@ impl FrogApp {
             });
     }
     
-    /// Generate sample SQLite database
-    fn _generate_sample_database(&mut self) {
-        use crate::create_sample_db::create_sample_database;
-        
-        match create_sample_database() {
-            Ok(_) => {
-                info!("Sample database created successfully");
-                // Open the sensor telemetry table by default
-                self.open_sqlite_table("data/sample_analytics.db", "sensor_telemetry");
-            }
-            Err(e) => {
-                error!("Failed to create sample database: {}", e);
-            }
-        }
-    }
-    
     /// Show welcome screen
     fn show_welcome_screen(&mut self, ui: &mut Ui) {
         // Get the available rect (which excludes the menu bar)
@@ -768,8 +892,8 @@ impl FrogApp {
         let painter = ui.painter();
         
         // Only animate if we're actually on the welcome screen
-        let has_data = self.viewer_context.data_source.read().is_some();
-        let show_animation = !has_data && self.viewport.is_empty();
+        let has_data = !self.viewer_context.data_sources.read().is_empty();
+        let show_animation = self.viewer_context.data_sources.read().is_empty() && self.viewport.is_empty();
         
         painter.rect_filled(
             rect,
@@ -840,116 +964,205 @@ impl FrogApp {
                 ui.add_space(30.0);
                 
                 // Check if we have data loaded but no views
-                let has_data = self.viewer_context.data_source.read().is_some();
+                let has_data = !self.viewer_context.data_sources.read().is_empty();
                 
                 if has_data {
                     // Data is loaded but no views - show more informative state
-                    let data_source = self.viewer_context.data_source.read();
-                    let source_name = data_source.as_ref().unwrap().source_name();
-                    let schema = self.runtime.block_on(data_source.as_ref().unwrap().schema());
+                    // Get the source name first
+                    let source_name = {
+                        let data_sources = self.viewer_context.data_sources.read();
+                        data_sources.values().next().map(|s| s.source_name().to_string()).unwrap_or_else(|| "Unknown".to_string())
+                    };
                     
-                    // Nice data loaded indicator
-                    ui.group(|ui| {
-                        ui.set_max_width(600.0);
-                        ui.horizontal(|ui| {
-                            ui.label(egui::RichText::new("✅").size(24.0).color(Color32::from_rgb(76, 175, 80)));
-                            ui.vertical(|ui| {
-                                ui.label(
-                                    egui::RichText::new("Data Successfully Loaded")
-                                        .size(18.0)
-                                        .color(Color32::from_gray(220))
-                                        .strong()
-                                );
-                                ui.label(
-                                    egui::RichText::new(format!("Source: {}", source_name))
-                                        .size(14.0)
-                                        .color(Color32::from_gray(160))
-                                );
-                                ui.label(
-                                    egui::RichText::new(format!("{} columns available for visualization", schema.fields().len()))
-                                        .size(14.0)
-                                        .color(Color32::from_gray(160))
-                                );
+                    // Get the schema in a separate operation to avoid holding the lock
+                    let schema_opt = {
+                        let data_sources = self.viewer_context.data_sources.read();
+                        if let Some(source) = data_sources.values().next() {
+                            Some(self.runtime.block_on(source.schema()))
+                        } else {
+                            None
+                        }
+                    };
+                    
+                    if let Some(schema) = schema_opt {
+                        // Nice data loaded indicator
+                        ui.group(|ui| {
+                            ui.set_max_width(600.0);
+                            ui.horizontal(|ui| {
+                                ui.label(egui::RichText::new("✅").size(24.0).color(Color32::from_rgb(76, 175, 80)));
+                                ui.vertical(|ui| {
+                                    ui.label(
+                                        egui::RichText::new("Data Successfully Loaded")
+                                            .size(18.0)
+                                            .color(Color32::from_gray(220))
+                                            .strong()
+                                    );
+                                    ui.label(
+                                        egui::RichText::new(format!("Source: {}", source_name))
+                                            .size(14.0)
+                                            .color(Color32::from_gray(160))
+                                    );
+                                    ui.label(
+                                        egui::RichText::new(format!("{} columns available for visualization", schema.fields().len()))
+                                            .size(14.0)
+                                            .color(Color32::from_gray(160))
+                                    );
+                                });
                             });
                         });
-                    });
-                    
-                    ui.add_space(30.0);
-                    
-                    // Action buttons
-                    ui.horizontal(|ui| {
-                        ui.spacing_mut().button_padding = Vec2::new(20.0, 14.0);
                         
-                        // Primary action - Dashboard Builder
-                        let primary_button = ui.add(
-                            egui::Button::new(
-                                egui::RichText::new("🎨 Create Dashboard")
-                                    .size(18.0)
-                                    .color(Color32::WHITE)
-                                    .strong()
-                            )
-                            .fill(Color32::from_rgb(76, 175, 80))
-                            .rounding(Rounding::same(8.0))
-                        );
+                        ui.add_space(30.0);
                         
-                        if primary_button.clicked() || ui.input(|i| i.key_pressed(egui::Key::B)) {
-                            info!("Creating ViewBuilderDialog from welcome screen");
-                            self.view_builder = Some(ViewBuilderDialog::new(schema.clone()));
-                        }
-                        
-                        primary_button.on_hover_text("Open the visual dashboard builder (Press B)");
-                        
-                        ui.add_space(10.0);
-                        
-                        // Secondary action - Quick templates
-                        let templates_button = ui.add(
-                            egui::Button::new(
-                                egui::RichText::new("⚡ Quick Start")
-                                    .size(16.0)
-                            )
-                            .rounding(Rounding::same(8.0))
-                        );
-                        
-                        if templates_button.clicked() {
-                            // Create a simple default layout
-                            let views = create_default_views_for_schema(&schema);
-                            self.viewport.create_grid_layout(views);
-                        }
-                        
-                        templates_button.on_hover_text("Automatically create views based on your data");
-                    });
-                    
-                    ui.add_space(40.0);
-                    
-                    // Show column preview
-                    ui.collapsing("📊 Available Columns", |ui| {
-                        egui::ScrollArea::vertical()
-                            .max_height(200.0)
-                            .show(ui, |ui| {
-                                ui.set_min_width(400.0);
-                                for field in schema.fields() {
-                                    ui.horizontal(|ui| {
-                                        // Column type icon
-                                        let icon = match field.data_type() {
-                                            arrow::datatypes::DataType::Float64 | 
-                                            arrow::datatypes::DataType::Float32 | 
-                                            arrow::datatypes::DataType::Int64 | 
-                                            arrow::datatypes::DataType::Int32 => "📊",
-                                            arrow::datatypes::DataType::Utf8 => "📝",
-                                            arrow::datatypes::DataType::Boolean => "✓",
-                                            arrow::datatypes::DataType::Date32 | 
-                                            arrow::datatypes::DataType::Date64 | 
-                                            arrow::datatypes::DataType::Timestamp(_, _) => "⏱️",
-                                            _ => "❓",
-                                        };
-                                        
-                                        ui.label(egui::RichText::new(icon).size(16.0));
-                                        ui.label(egui::RichText::new(field.name()).size(14.0).color(Color32::from_gray(200)));
-                                        ui.label(egui::RichText::new(format!("({})", field.data_type())).size(12.0).color(Color32::from_gray(140)));
-                                    });
+                        // Action buttons
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().button_padding = Vec2::new(20.0, 14.0);
+                            
+                            // Primary action - Dashboard Builder
+                            let primary_button = ui.add(
+                                egui::Button::new(
+                                    egui::RichText::new("🎨 Create Dashboard")
+                                        .size(18.0)
+                                        .color(Color32::WHITE)
+                                        .strong()
+                                )
+                                .fill(Color32::from_rgb(76, 175, 80))
+                                .rounding(Rounding::same(8.0))
+                            );
+                            
+                            if primary_button.clicked() || ui.input(|i| i.key_pressed(egui::Key::B)) {
+                                info!("Creating ViewBuilderDialog from welcome screen");
+                                // Collect all data sources and schemas
+                                let data_sources = self.viewer_context.data_sources.read();
+                                let mut sources_with_schemas = Vec::new();
+                                
+                                for (id, source) in data_sources.iter() {
+                                    let schema = self.runtime.block_on(source.schema());
+                                    sources_with_schemas.push((id.clone(), schema));
                                 }
+                                
+                                if !sources_with_schemas.is_empty() {
+                                    self.view_builder = Some(ViewBuilderDialog::new_multi(sources_with_schemas));
+                                }
+                            }
+                            
+                            primary_button.on_hover_text("Open the visual dashboard builder (Press B)");
+                            
+                            ui.add_space(10.0);
+                            
+                            // Secondary action - Quick templates
+                            let templates_button = ui.add(
+                                egui::Button::new(
+                                    egui::RichText::new("⚡ Quick Start")
+                                        .size(16.0)
+                                )
+                                .rounding(Rounding::same(8.0))
+                            );
+                            
+                            if templates_button.clicked() {
+                                // Create a simple default layout
+                                let views = create_default_views_for_schema(&schema);
+                                self.viewport.create_grid_layout(views);
+                            }
+                            
+                            templates_button.on_hover_text("Automatically create views based on your data");
+                        });
+                        
+                        ui.add_space(40.0);
+                        
+                        // Show column preview
+                        ui.collapsing("📊 Available Columns", |ui| {
+                            // Get current data batch for statistics
+                            let batch_opt = {
+                                let data_sources = self.viewer_context.data_sources.read();
+                                if let Some(source) = data_sources.values().next() {
+                                    let nav_pos = self.viewer_context.navigation.get_context().position.clone();
+                                    self.runtime.block_on(source.query_at(&nav_pos)).ok()
+                                } else {
+                                    None
+                                }
+                            };
+                            
+                            egui::ScrollArea::vertical()
+                                .max_height(300.0)
+                                .show(ui, |ui| {
+                                    ui.set_min_width(500.0);
+                                    for (idx, field) in schema.fields().iter().enumerate() {
+                                        ui.group(|ui| {
+                                            ui.horizontal(|ui| {
+                                                // Column type icon
+                                                let icon = match field.data_type() {
+                                                    arrow::datatypes::DataType::Float64 | 
+                                                    arrow::datatypes::DataType::Float32 | 
+                                                    arrow::datatypes::DataType::Int64 | 
+                                                    arrow::datatypes::DataType::Int32 => "📊",
+                                                    arrow::datatypes::DataType::Utf8 => "📝",
+                                                    arrow::datatypes::DataType::Boolean => "✓",
+                                                    arrow::datatypes::DataType::Date32 | 
+                                                    arrow::datatypes::DataType::Date64 | 
+                                                    arrow::datatypes::DataType::Timestamp(_, _) => "⏱️",
+                                                    _ => "❓",
+                                                };
+                                                
+                                                ui.label(egui::RichText::new(icon).size(16.0));
+                                                ui.label(egui::RichText::new(field.name()).size(14.0).color(Color32::from_gray(200)).strong());
+                                                ui.label(egui::RichText::new(format!("({})", field.data_type())).size(12.0).color(Color32::from_gray(140)));
+                                            });
+                                            
+                                            // Show column statistics if we have data
+                                            if let Some(ref batch) = batch_opt {
+                                                if let Some(column) = batch.column(idx).as_any().downcast_ref::<arrow::array::StringArray>() {
+                                                    self.show_column_stats(ui, field.name(), column);
+                                                } else if let Some(column) = batch.column(idx).as_any().downcast_ref::<Float64Array>() {
+                                                    ui.horizontal(|ui| {
+                                                        ui.add_space(20.0);
+                                                        if let (Some(min), Some(max)) = (arrow::compute::min(column), arrow::compute::max(column)) {
+                                                            ui.label(egui::RichText::new(format!("Range: {:.2} - {:.2}", min, max)).size(12.0).color(Color32::from_gray(160)));
+                                                        }
+                                                    });
+                                                } else if let Some(column) = batch.column(idx).as_any().downcast_ref::<Int64Array>() {
+                                                    ui.horizontal(|ui| {
+                                                        ui.add_space(20.0);
+                                                        if let (Some(min), Some(max)) = (arrow::compute::min(column), arrow::compute::max(column)) {
+                                                            ui.label(egui::RichText::new(format!("Range: {} - {}", min, max)).size(12.0).color(Color32::from_gray(160)));
+                                                        }
+                                                    });
+                                                }
+                                            }
+                                        });
+                                        ui.add_space(4.0);
+                                    }
+                                });
+                        });
+                        
+                        ui.add_space(30.0);
+                        
+                        // Keyboard shortcuts
+                        ui.group(|ui| {
+                            ui.set_max_width(400.0);
+                            ui.label(egui::RichText::new("⌨️ Keyboard Shortcuts").size(14.0).color(Color32::from_gray(200)).strong());
+                            ui.separator();
+                            ui.horizontal(|ui| {
+                                ui.label(egui::RichText::new("B").size(12.0).color(Color32::from_gray(180)).strong());
+                                ui.label(egui::RichText::new("- Open Dashboard Builder").size(12.0).color(Color32::from_gray(160)));
                             });
-                    });
+                            ui.horizontal(|ui| {
+                                ui.label(egui::RichText::new("S").size(12.0).color(Color32::from_gray(180)).strong());
+                                ui.label(egui::RichText::new("- Toggle Summary Statistics").size(12.0).color(Color32::from_gray(160)));
+                            });
+                            ui.horizontal(|ui| {
+                                ui.label(egui::RichText::new("D").size(12.0).color(Color32::from_gray(180)).strong());
+                                ui.label(egui::RichText::new("- Demo Mode").size(12.0).color(Color32::from_gray(160)));
+                            });
+                            ui.horizontal(|ui| {
+                                ui.label(egui::RichText::new("H").size(12.0).color(Color32::from_gray(180)).strong());
+                                ui.label(egui::RichText::new("- Return to Home").size(12.0).color(Color32::from_gray(160)));
+                            });
+                            ui.horizontal(|ui| {
+                                ui.label(egui::RichText::new("Ctrl+O").size(12.0).color(Color32::from_gray(180)).strong());
+                                ui.label(egui::RichText::new("- Open File").size(12.0).color(Color32::from_gray(160)));
+                            });
+                        });
+                    }
                 } else {
                     // No data loaded - show the two main action buttons
                     ui.add_space(60.0);
@@ -1022,15 +1235,28 @@ impl FrogApp {
                                     .add_filter("Data Files", &["csv", "db", "sqlite", "sqlite3"])
                                     .pick_files()
                                 {
-                                    if paths.len() == 1 {
-                                        let path = &paths[0];
-                                        if path.extension().map_or(false, |ext| ext == "csv") {
-                                            self.open_csv_file(path.clone());
+                                    // Create file configuration dialog for all selected files
+                                    let mut config_manager = dv_data::config::FileConfigManager::new();
+                                    
+                                    for path in paths {
+                                        let file_type = if path.extension()
+                                            .and_then(|ext| ext.to_str())
+                                            .map(|ext| ext.eq_ignore_ascii_case("db") || ext.eq_ignore_ascii_case("sqlite") || ext.eq_ignore_ascii_case("sqlite3"))
+                                            .unwrap_or(false)
+                                        {
+                                            dv_data::config::FileType::Sqlite
                                         } else {
-                                            self.open_sqlite_file(path.clone());
-                                        }
-                                    } else if paths.len() > 1 {
-                                        self.open_multiple_csv_files(paths);
+                                            dv_data::config::FileType::Csv
+                                        };
+                                        
+                                        // Add file to configuration manager
+                                        let config = dv_data::config::FileConfig::new(path, file_type);
+                                        config_manager.add_file(config);
+                                    }
+                                    
+                                    // Show file configuration dialog
+                                    if !config_manager.configs.is_empty() {
+                                        self.file_config_dialog = Some(FileConfigDialog::new(config_manager, self.runtime.handle().clone()));
                                     }
                                 }
                             }
@@ -1065,23 +1291,31 @@ impl FrogApp {
             .open(&mut show_stats)
             .show(ctx, |ui| {
                 // Check if we have data
-                let data_source = self.viewer_context.data_source.read();
-                if data_source.is_none() {
+                let has_data_source = {
+                    let data_sources = self.viewer_context.data_sources.read();
+                    !data_sources.is_empty()
+                };
+                if !has_data_source {
                     ui.centered_and_justified(|ui| {
                         ui.label("No data loaded");
                     });
                     return;
                 }
                 
-                let data_source = data_source.as_ref().unwrap();
-                let schema = self.runtime.block_on(data_source.schema());
-                
-                // Get current data batch
-                let nav_pos = self.viewer_context.navigation.get_context().position.clone();
-                if let Ok(batch) = self.runtime.block_on(data_source.query_at(&nav_pos)) {
-                    self.render_summary_stats(ui, &batch, &schema);
+                // Get the first data source
+                let data_sources = self.viewer_context.data_sources.read();
+                if let Some((_, data_source)) = data_sources.iter().next() {
+                    let schema = self.runtime.block_on(data_source.schema());
+                    
+                    // Get current data batch
+                    let nav_pos = self.viewer_context.navigation.get_context().position.clone();
+                    if let Ok(batch) = self.runtime.block_on(data_source.query_at(&nav_pos)) {
+                        self.render_summary_stats(ui, &batch, &schema);
+                    } else {
+                        ui.label("Failed to load data");
+                    }
                 } else {
-                    ui.label("Failed to load data");
+                    return; // No data source available
                 }
             });
         
@@ -1270,9 +1504,8 @@ impl FrogApp {
     }
     
     fn show_string_stats(&self, ui: &mut Ui, array: &arrow::array::StringArray) {
-        use std::collections::HashMap;
-        
-        let mut unique_values = HashMap::new();
+        // Count unique values
+        let mut unique_values = std::collections::HashMap::new();
         let mut total_length = 0;
         let mut count = 0;
         
@@ -1314,13 +1547,39 @@ impl FrogApp {
             }
         }
     }
+    
+    /// Show column statistics for string columns
+    fn show_column_stats(&self, ui: &mut Ui, _column_name: &str, array: &arrow::array::StringArray) {
+        // Count unique values and get samples
+        let mut unique_values = std::collections::HashMap::new();
+        let mut sample_values = Vec::new();
+        
+        for i in 0..array.len().min(100) {  // Sample first 100 rows
+            if array.is_valid(i) {
+                let value = array.value(i);
+                *unique_values.entry(value.to_string()).or_insert(0) += 1;
+                if sample_values.len() < 3 && !sample_values.contains(&value.to_string()) {
+                    sample_values.push(value.to_string());
+                }
+            }
+        }
+        
+        ui.horizontal(|ui| {
+            ui.add_space(20.0);
+            ui.label(egui::RichText::new(format!("{} unique values", unique_values.len())).size(12.0).color(Color32::from_gray(160)));
+            if !sample_values.is_empty() {
+                ui.label(egui::RichText::new("•").size(12.0).color(Color32::from_gray(120)));
+                ui.label(egui::RichText::new(format!("e.g. {}", sample_values.join(", "))).size(12.0).color(Color32::from_gray(160)));
+            }
+        });
+    }
 }
 
 impl eframe::App for FrogApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Only request continuous repaint when needed
-        let has_data = self.viewer_context.data_source.read().is_some();
-        let on_welcome_screen = !has_data && self.viewport.is_empty();
+        let has_data = !self.viewer_context.data_sources.read().is_empty();
+        let on_welcome_screen = self.viewport.is_empty(); // Show welcome screen when no views exist
         
         if on_welcome_screen || self.demo_overlay.show {
             ctx.request_repaint();
@@ -1332,6 +1591,40 @@ impl eframe::App for FrogApp {
         // Handle demo overlay (on top of everything)
         if let Some(example) = self.demo_overlay.show(ctx) {
             self.init_demo_example(example);
+        }
+        
+        // Handle file configuration dialog
+        let mut config_result = None;
+        let mut dialog_closed = false;
+        
+        if let Some(ref mut dialog) = self.file_config_dialog {
+            if let Some(config_manager) = dialog.show_dialog(ctx) {
+                config_result = Some(config_manager);
+            }
+            
+            // Check if dialog was closed
+            if !dialog.show {
+                dialog_closed = true;
+            }
+            
+            // If file config dialog is active and showing, return early
+            if !dialog_closed && dialog.show {
+                return;
+            }
+        }
+        
+        // Handle results outside of the borrow
+        if let Some(config_manager) = config_result {
+            // Load the configured files
+            self.load_configured_files(config_manager);
+            self.file_config_dialog = None;
+            
+            // Set flag to open dashboard builder after loading
+            self.open_builder_on_load = true;
+        }
+        
+        if dialog_closed {
+            self.file_config_dialog = None;
         }
         
         // Handle keyboard shortcuts
@@ -1366,24 +1659,42 @@ impl eframe::App for FrogApp {
             // Ctrl+O to open file
             if i.key_pressed(egui::Key::O) && i.modifiers.ctrl {
                 if let Some(paths) = rfd::FileDialog::new()
+                    .add_filter("Data Files", &["csv", "db", "sqlite", "sqlite3"])
                     .add_filter("CSV Files", &["csv"])
                     .add_filter("SQLite Database", &["db", "sqlite", "sqlite3"])
                     .pick_files()
                 {
-                    if let Some(path) = paths.first() {
-                        match path.extension().and_then(|s| s.to_str()) {
-                            Some("csv") => self.open_csv_file(path.clone()),
-                            Some("db") | Some("sqlite") | Some("sqlite3") => 
-                                self.open_sqlite_file(path.clone()),
-                            _ => error!("Unsupported file type"),
-                        }
+                    // Create file configuration dialog for all selected files
+                    let mut config_manager = dv_data::config::FileConfigManager::new();
+                    
+                    for path in paths {
+                        let file_type = if path.extension()
+                            .and_then(|ext| ext.to_str())
+                            .map(|ext| ext.eq_ignore_ascii_case("db") || ext.eq_ignore_ascii_case("sqlite") || ext.eq_ignore_ascii_case("sqlite3"))
+                            .unwrap_or(false)
+                        {
+                            dv_data::config::FileType::Sqlite
+                        } else {
+                            dv_data::config::FileType::Csv
+                        };
+                        
+                        // Add file to configuration manager
+                        let config = dv_data::config::FileConfig::new(path, file_type);
+                        config_manager.add_file(config);
+                    }
+                    
+                    // Show file configuration dialog
+                    if !config_manager.configs.is_empty() {
+                        info!("Creating FileConfigDialog with {} files (Ctrl+O)", config_manager.configs.len());
+                        self.file_config_dialog = Some(FileConfigDialog::new(config_manager, self.runtime.handle().clone()));
+                        info!("FileConfigDialog created successfully (Ctrl+O)");
                     }
                 }
             }
             
             // H key (not Ctrl+H) to go home
             if i.key_pressed(egui::Key::H) && !i.modifiers.ctrl {
-                *self.viewer_context.data_source.write() = None;
+                *self.viewer_context.data_sources.write() = HashMap::new();
                 self.viewport = Viewport::new();
                 self.demo_mode = false;
                 self.view_builder = None;
@@ -1391,10 +1702,18 @@ impl eframe::App for FrogApp {
             
             // B key to open view builder
             if i.key_pressed(egui::Key::B) && !i.modifiers.ctrl {
-                if let Some(data_source) = &*self.viewer_context.data_source.read() {
-                    let schema = self.runtime.block_on(data_source.schema());
+                // Collect all data sources and schemas
+                let data_sources = self.viewer_context.data_sources.read();
+                let mut sources_with_schemas = Vec::new();
+                
+                for (id, source) in data_sources.iter() {
+                    let schema = self.runtime.block_on(source.schema());
+                    sources_with_schemas.push((id.clone(), schema));
+                }
+                
+                if !sources_with_schemas.is_empty() {
                     info!("Creating ViewBuilderDialog from B key");
-                    self.view_builder = Some(ViewBuilderDialog::new(schema));
+                    self.view_builder = Some(ViewBuilderDialog::new_multi(sources_with_schemas));
                 }
             }
             
@@ -1474,7 +1793,27 @@ impl eframe::App for FrogApp {
         }
         
         // Check if we have data loaded
-        let has_data = self.viewer_context.data_source.read().is_some();
+        let has_data = !self.viewer_context.data_sources.read().is_empty();
+        
+        // Check if we should open dashboard builder automatically
+        if self.open_builder_on_load && has_data && self.view_builder.is_none() && !*self.is_loading.read() {
+            // Data is loaded, open dashboard builder
+            self.open_builder_on_load = false;
+            
+            // Collect all data sources and schemas
+            let data_sources = self.viewer_context.data_sources.read();
+            let mut sources_with_schemas = Vec::new();
+            
+            for (id, source) in data_sources.iter() {
+                let schema = self.runtime.block_on(source.schema());
+                sources_with_schemas.push((id.clone(), schema));
+            }
+            
+            if !sources_with_schemas.is_empty() {
+                info!("Auto-opening ViewBuilderDialog after data load");
+                self.view_builder = Some(ViewBuilderDialog::new_multi(sources_with_schemas));
+            }
+        }
         
         // Handle view builder dialog FIRST - if it's active, show it and return early
         if let Some(ref mut builder) = self.view_builder {
@@ -1497,18 +1836,6 @@ impl eframe::App for FrogApp {
             
             // If view builder is shown, don't show anything else
             return;
-        }
-        
-        // Check if we should show view builder dialog automatically
-        if has_data && self.viewport.is_empty() && self.view_builder.is_none() && !self.demo_mode {
-            // Data loaded but no views created - show view builder
-            if let Some(data_source) = &*self.viewer_context.data_source.read() {
-                let schema = self.runtime.block_on(data_source.schema());
-                self.view_builder = Some(ViewBuilderDialog::new(schema));
-                // Return early to show it on next frame
-                ctx.request_repaint();
-                return;
-            }
         }
         
         // Show SQLite table selection dialog
@@ -1629,7 +1956,12 @@ impl eframe::App for FrogApp {
             
             // Main content area with viewport
             egui::CentralPanel::default().show(ctx, |ui| {
-                self.viewport.ui(ui, &self.viewer_context);
+                // Show welcome screen if no views are created, even if data is loaded
+                if self.viewport.is_empty() {
+                    self.show_welcome_screen(ui);
+                } else {
+                    self.viewport.ui(ui, &self.viewer_context);
+                }
             });
         } else {
             // Show welcome screen if no data is loaded

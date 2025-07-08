@@ -12,6 +12,9 @@ use dv_core::navigation::NavigationPosition;
 /// Configuration for time series view
 #[derive(Clone)]
 pub struct TimeSeriesConfig {
+    /// Data source ID
+    pub data_source_id: Option<String>,
+    
     /// X-axis column (None means use row index)
     pub x_column: Option<String>,
     
@@ -40,6 +43,7 @@ pub struct TimeSeriesConfig {
 impl Default for TimeSeriesConfig {
     fn default() -> Self {
         Self {
+            data_source_id: None,
             x_column: None,
             y_columns: Vec::new(),
             show_points: false,
@@ -99,10 +103,18 @@ impl TimeSeriesView {
         }
     }
     
+    /// Set the data source ID for this view
+    pub fn set_data_source(&mut self, source_id: String) {
+        self.config.data_source_id = Some(source_id);
+        self.cached_data = None; // Clear cache when source changes
+    }
+    
     /// Fetch plot data based on current navigation context
     fn fetch_plot_data(&self, ctx: &ViewerContext) -> Option<PlotData> {
-        let data_source = ctx.data_source.read();
-        let data_source = data_source.as_ref()?;
+        // Get the specific data source for this view
+        let source_id = self.config.data_source_id.as_ref()?;
+        let data_sources = ctx.data_sources.read();
+        let data_source = data_sources.get(source_id)?;
         
         // Get navigation context
         let nav_context = ctx.navigation.get_context();
@@ -247,8 +259,20 @@ impl TimeSeriesView {
 }
 
 impl SpaceView for TimeSeriesView {
-    fn id(&self) -> &Uuid {
-        &self.id
+    fn id(&self) -> SpaceViewId {
+        self.id
+    }
+
+    fn title(&self) -> &str {
+        &self.title
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
     }
     
     fn display_name(&self) -> &str {
@@ -259,7 +283,40 @@ impl SpaceView for TimeSeriesView {
         "TimeSeriesView"
     }
     
+    fn set_data_source(&mut self, source_id: String) {
+        self.config.data_source_id = Some(source_id);
+        self.cached_data = None; // Clear cache when source changes
+    }
+    
+    fn data_source_id(&self) -> Option<&str> {
+        self.config.data_source_id.as_deref()
+    }
+    
     fn ui(&mut self, ctx: &ViewerContext, ui: &mut Ui) {
+        // Show data source selector at top
+        ui.horizontal(|ui| {
+            ui.label("Data Source:");
+            
+            let current_source = self.config.data_source_id.as_deref().unwrap_or("None");
+            egui::ComboBox::from_id_source(format!("ts_source_{}", self.id))
+                .selected_text(current_source)
+                .show_ui(ui, |ui| {
+                    let data_sources = ctx.data_sources.read();
+                    if data_sources.is_empty() {
+                        ui.label("No data sources loaded");
+                    } else {
+                        for (source_id, _) in data_sources.iter() {
+                            let is_selected = self.config.data_source_id.as_ref() == Some(source_id);
+                            if ui.selectable_label(is_selected, source_id).clicked() {
+                                self.set_data_source(source_id.clone());
+                            }
+                        }
+                    }
+                });
+        });
+        
+        ui.separator();
+        
         // Update data if navigation changed
         let nav_pos = ctx.navigation.get_context().position.clone();
         if self.last_navigation_pos.as_ref() != Some(&nav_pos) {
@@ -533,6 +590,7 @@ impl SpaceView for TimeSeriesView {
     
     fn save_config(&self) -> serde_json::Value {
         serde_json::json!({
+            "data_source_id": self.config.data_source_id,
             "x_column": self.config.x_column,
             "y_columns": self.config.y_columns,
             "show_points": self.config.show_points,
@@ -545,6 +603,9 @@ impl SpaceView for TimeSeriesView {
     }
     
     fn load_config(&mut self, config: serde_json::Value) {
+        if let Some(data_source_id) = config.get("data_source_id").and_then(|v| v.as_str()) {
+            self.config.data_source_id = Some(data_source_id.to_string());
+        }
         if let Some(x_column) = config.get("x_column").and_then(|v| v.as_str()) {
             self.config.x_column = Some(x_column.to_string());
         }
@@ -578,6 +639,10 @@ impl SpaceView for TimeSeriesView {
     }
     
     fn on_frame_update(&mut self, _ctx: &ViewerContext, _dt: f32) {
-        // Nothing to update per frame
+        // No per-frame updates needed for now
+    }
+    
+    fn is_time_series(&self) -> bool {
+        true
     }
 } 

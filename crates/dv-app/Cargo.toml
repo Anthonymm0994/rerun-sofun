@@ -30,6 +30,7 @@ egui_plot = { workspace = true }
 
 # Data dependencies
 arrow = { workspace = true }
+csv = { workspace = true }
 
 # Async
 tokio = { workspace = true }

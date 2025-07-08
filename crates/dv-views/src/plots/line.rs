@@ -11,6 +11,7 @@ use dv_core::navigation::NavigationPosition;
 /// Configuration for line plot view
 #[derive(Clone)]
 pub struct LinePlotConfig {
+    pub data_source_id: String,
     /// X-axis column (optional, uses row index if not specified)
     pub x_column: Option<String>,
     
@@ -52,6 +53,7 @@ pub enum LineStyle {
 impl Default for LinePlotConfig {
     fn default() -> Self {
         Self {
+            data_source_id: String::new(),
             x_column: None,
             y_columns: Vec::new(),
             line_width: 2.0,
@@ -102,7 +104,9 @@ impl LinePlotView {
     
     /// Fetch line plot data
     fn fetch_data(&mut self, ctx: &ViewerContext) -> Option<LineData> {
-        let data_source = ctx.data_source.read();
+        let data_sources = ctx.data_sources.read();
+
+        let data_source = data_sources.values().next();
         let data_source = data_source.as_ref()?;
         
         // Get navigation context
@@ -174,8 +178,20 @@ impl LinePlotView {
 }
 
 impl SpaceView for LinePlotView {
-    fn id(&self) -> &SpaceViewId {
-        &self.id
+    fn id(&self) -> SpaceViewId {
+        self.id
+    }
+
+    fn title(&self) -> &str {
+        &self.title
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
     }
     
     fn display_name(&self) -> &str {

@@ -9,6 +9,7 @@ use crate::{SpaceView, SpaceViewId, SelectionState, ViewerContext};
 /// Configuration for contour plot
 #[derive(Debug, Clone)]
 pub struct ContourConfig {
+    pub data_source_id: String,
     pub x_column: String,
     pub y_column: String,
     pub z_column: String,
@@ -19,6 +20,7 @@ pub struct ContourConfig {
 impl Default for ContourConfig {
     fn default() -> Self {
         Self {
+            data_source_id: String::new(),
             x_column: String::new(),
             y_column: String::new(),
             z_column: String::new(),
@@ -46,7 +48,19 @@ impl ContourPlot {
 }
 
 impl SpaceView for ContourPlot {
-    fn id(&self) -> &SpaceViewId { &self.id }
+    fn id(&self) -> SpaceViewId { self.id }
+    fn title(&self) -> &str {
+        &self.title
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+    
     fn display_name(&self) -> &str { &self.title }
     fn view_type(&self) -> &str { "ContourPlot" }
     
@@ -58,6 +72,7 @@ impl SpaceView for ContourPlot {
     
     fn save_config(&self) -> Value {
         json!({
+            "data_source_id": self.config.data_source_id,
             "x_column": self.config.x_column,
             "y_column": self.config.y_column,
             "z_column": self.config.z_column,

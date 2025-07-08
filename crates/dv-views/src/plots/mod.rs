@@ -68,4 +68,33 @@ pub use network::{NetworkGraph, NetworkGraphConfig};
 pub use geo::{GeoPlot, GeoPlotConfig};
 pub use time_analysis::{TimeAnalysisPlot, TimeAnalysisConfig};
 pub use candlestick::{CandlestickChart, CandlestickConfig};
-pub use stream::{StreamGraph, StreamGraphConfig}; 
+pub use stream::{StreamGraph, StreamGraphConfig};
+
+// New polar plot module
+pub mod polar;
+
+// Re-export plot types
+pub use anomaly::*;
+pub use bar::*;
+pub use box_plot::*;
+pub use candlestick::*;
+pub use contour::*;
+pub use correlation::*;
+pub use distribution::*;
+pub use geo::*;
+pub use heatmap::*;
+pub use histogram::*;
+pub use line::*;
+pub use network::*;
+pub use parallel_coordinates::*;
+pub use polar::*;
+pub use radar::*;
+pub use sankey::*;
+pub use scatter::*;
+pub use scatter3d::*;
+pub use stream::*;
+pub use sunburst::*;
+pub use surface3d::*;
+pub use time_analysis::*;
+pub use treemap::*;
+pub use violin::*; 

@@ -1,5 +1,5 @@
 use egui::{Context, TopBottomPanel, CentralPanel};
-use dv_core::AppState;
+use dv_core::{AppState, ViewerContext};
 use crate::UiState;
 
 /// Application shell that manages the main UI structure
@@ -30,7 +30,7 @@ impl Default for ShellConfig {
 }
 
 /// Render the main menu bar
-pub fn menu_bar(ctx: &Context, app_state: &mut AppState) {
+pub fn menu_bar(ctx: &Context, app_state: &mut AppState, viewer_context: Option<&ViewerContext>) {
     TopBottomPanel::top("menu_bar").show(ctx, |ui| {
         egui::menu::bar(ui, |ui| {
             // File menu
@@ -61,13 +61,11 @@ pub fn menu_bar(ctx: &Context, app_state: &mut AppState) {
             
             // View menu
             ui.menu_button("View", |ui| {
-                let settings = &mut app_state.settings.write();
-                
-                if ui.checkbox(&mut settings.show_navigation_bar, "Navigation Bar").clicked() {
+                if ui.checkbox(&mut app_state.settings.show_navigation_bar, "Navigation Bar").clicked() {
                     ui.close_menu();
                 }
                 
-                if ui.checkbox(&mut settings.show_stats_panel, "Statistics Panel").clicked() {
+                if ui.checkbox(&mut app_state.settings.show_stats_panel, "Statistics Panel").clicked() {
                     ui.close_menu();
                 }
                 
@@ -102,38 +100,45 @@ pub fn menu_bar(ctx: &Context, app_state: &mut AppState) {
             
             // Right-aligned status
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                // Show data source name if loaded
-                if let Some(ref source) = *app_state.data_source.read() {
-                    ui.label(source.source_name());
-                    ui.separator();
+                if let Some(viewer_ctx) = viewer_context {
+                    // Show data source count if loaded
+                    let data_sources = viewer_ctx.data_sources.read();
+                    if !data_sources.is_empty() {
+                        ui.label(format!("{} source(s) loaded", data_sources.len()));
+                        ui.separator();
+                    }
+                    
+                    // Show navigation mode
+                    let context = viewer_ctx.navigation.get_context();
+                    let mode_text = match context.mode {
+                        dv_core::NavigationMode::Temporal => "⏱ Time",
+                        dv_core::NavigationMode::Sequential => "📊 Rows",
+                        dv_core::NavigationMode::Categorical { .. } => "📝 Categories",
+                    };
+                    ui.label(mode_text);
                 }
-                
-                // Show navigation mode
-                let context = app_state.navigation.get_context();
-                let mode_text = match context.mode {
-                    dv_core::NavigationMode::Temporal => "⏱ Time",
-                    dv_core::NavigationMode::Sequential => "📊 Rows",
-                    dv_core::NavigationMode::Categorical { .. } => "📝 Categories",
-                };
-                ui.label(mode_text);
             });
         });
     });
 }
 
 /// Render the central panel with dock area
-pub fn central_panel(ctx: &Context, app_state: &mut AppState, ui_state: &mut UiState) {
+pub fn central_panel(ctx: &Context, app_state: &mut AppState, ui_state: &mut UiState, viewer_context: Option<&ViewerContext>) {
     CentralPanel::default().show(ctx, |ui| {
         // Error messages
         show_error_messages(ui, ui_state);
         
         // Main content area
-        if app_state.data_source.read().is_none() {
+        let has_data = viewer_context
+            .map(|v| !v.data_sources.read().is_empty())
+            .unwrap_or(false);
+            
+        if !has_data {
             // Welcome screen when no data is loaded
             show_welcome_screen(ui);
         } else {
             // Dock area with views
-            show_dock_area(ui, app_state, ui_state);
+            show_dock_area(ui, app_state, ui_state, viewer_context);
         }
     });
 }
@@ -197,7 +202,7 @@ fn show_welcome_screen(ui: &mut egui::Ui) {
 }
 
 /// Show dock area with views
-fn show_dock_area(ui: &mut egui::Ui, _app_state: &mut AppState, _ui_state: &mut UiState) {
+fn show_dock_area(ui: &mut egui::Ui, _app_state: &mut AppState, _ui_state: &mut UiState, _viewer_context: Option<&ViewerContext>) {
     // TODO: Implement dock area with views
     ui.label("Dock area - TODO: Implement with egui_dock");
 } 

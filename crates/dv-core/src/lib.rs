@@ -13,7 +13,7 @@ pub use navigation::{
     NavigationEngine, NavigationMode, NavigationPosition, 
     NavigationContext, NavigationSubscriber,
 };
-pub use state::{AppState, AppSettings, SpaceViewId, HoveredData};
+pub use state::{AppState, AppSettings, SpaceViewId, HoveredData, ViewerContext, TimeControl, FrameTime};
 
 // Placeholder modules that will be implemented in other crates
 pub mod data {

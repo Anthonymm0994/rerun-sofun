@@ -6,14 +6,17 @@ use egui::{Context, Ui, Vec2, Color32, Rect, Pos2, Sense, Rounding, Stroke, Alig
 use dv_views::SpaceView;
 use dv_core::navigation::NavigationMode;
 use uuid;
-use dv_views::{TimeSeriesView, TableView, ScatterPlotView, BarChartView};
+use dv_views::{TimeSeriesView, TableView, plots::{ScatterPlotView, BarChartView}};
 
 /// Modern view builder dialog with visual layout editor
 pub struct ViewBuilderDialog {
-    /// Data schema
-    schema: Arc<Schema>,
+    /// Available data sources and their schemas
+    data_sources: Vec<(String, Arc<Schema>)>,
     
-    /// Column metadata
+    /// Currently selected data source
+    selected_data_source: Option<String>,
+    
+    /// Column metadata for selected data source
     columns: ColumnMetadata,
     
     /// Dashboard templates
@@ -68,6 +71,7 @@ enum PlotType {
     Surface3D,
     ParallelCoordinates,
     RadarChart,
+    PolarPlot,
     Contour,
     Sankey,
     Treemap,
@@ -122,131 +126,164 @@ struct LayoutCell {
 pub enum ViewConfig {
     TimeSeries {
         title: String,
+        data_source_id: Option<String>,
         x_column: Option<String>,
         y_columns: Vec<String>,
     },
     Scatter {
         title: String,
+        data_source_id: Option<String>,
         x_column: String,
         y_column: String,
         color_column: Option<String>,
     },
     Table {
         title: String,
+        data_source_id: Option<String>,
         columns: Vec<String>,
     },
     BarChart {
         title: String,
+        data_source_id: Option<String>,
         category_column: String,
         value_column: String,
     },
     SummaryStats {
         title: String,
+        data_source_id: Option<String>,
     },
     Line {
         title: String,
+        data_source_id: Option<String>,
         x_column: Option<String>,
         y_columns: Vec<String>,
     },
     Histogram {
         title: String,
+        data_source_id: Option<String>,
         column: String,
     },
     BoxPlot {
         title: String,
+        data_source_id: Option<String>,
         value_column: String,
         category_column: Option<String>,
     },
     ViolinPlot {
         title: String,
+        data_source_id: Option<String>,
         value_column: String,
         category_column: Option<String>,
     },
     Heatmap {
         title: String,
+        data_source_id: Option<String>,
         x_column: String,
         y_column: String,
         value_column: String,
     },
     AnomalyDetection {
         title: String,
+        data_source_id: Option<String>,
         column: String,
     },
     CorrelationMatrix {
         title: String,
+        data_source_id: Option<String>,
         columns: Vec<String>,
     },
     Scatter3D {
         title: String,
+        data_source_id: Option<String>,
         x_column: String,
         y_column: String,
         z_column: String,
     },
     Surface3D {
         title: String,
+        data_source_id: Option<String>,
         x_column: String,
         y_column: String,
         z_column: String,
     },
     ParallelCoordinates {
         title: String,
+        data_source_id: Option<String>,
         columns: Vec<String>,
     },
     RadarChart {
         title: String,
+        data_source_id: Option<String>,
         value_columns: Vec<String>,
         group_column: Option<String>,
     },
+    PolarPlot {
+        title: String,
+        data_source_id: Option<String>,
+        angle_column: String,
+        radius_column: String,
+        category_column: Option<String>,
+    },
     Contour {
         title: String,
+        data_source_id: Option<String>,
         x_column: String,
         y_column: String,
         z_column: String,
     },
     Sankey {
         title: String,
+        data_source_id: Option<String>,
         source_column: String,
         target_column: String,
         value_column: String,
     },
     Treemap {
         title: String,
+        data_source_id: Option<String>,
         category_column: String,
         value_column: String,
     },
     Sunburst {
         title: String,
+        data_source_id: Option<String>,
         hierarchy_columns: Vec<String>,
         value_column: Option<String>,
     },
     NetworkGraph {
         title: String,
+        data_source_id: Option<String>,
         source_column: String,
         target_column: String,
     },
     Distribution {
         title: String,
+        data_source_id: Option<String>,
         column: String,
     },
     TimeAnalysis {
         title: String,
+        data_source_id: Option<String>,
         time_column: String,
         value_columns: Vec<String>,
     },
     GeoPlot {
         title: String,
+        data_source_id: Option<String>,
         lat_column: String,
         lon_column: String,
         value_column: Option<String>,
     },
     StreamGraph {
         title: String,
+        data_source_id: Option<String>,
         time_column: String,
         value_column: String,
         category_column: Option<String>,
     },
     CandlestickChart {
         title: String,
+        data_source_id: Option<String>,
         time_column: String,
         open_column: String,
         high_column: String,
@@ -281,9 +318,32 @@ fn plot_button(selected: bool) -> impl egui::Widget {
 }
 
 impl ViewBuilderDialog {
-    /// Create a new modern view builder
-    pub fn new(schema: Arc<Schema>) -> Self {
-        let columns = Self::analyze_schema(&schema);
+    /// Create a new modern view builder with multiple data sources
+    pub fn new_multi(data_sources: Vec<(String, Arc<Schema>)>) -> Self {
+        // Select first data source by default
+        let selected_data_source = data_sources.first().map(|(id, _)| id.clone());
+        
+        // Analyze schema of selected source
+        let columns = if let Some(source_id) = &selected_data_source {
+            if let Some((_, schema)) = data_sources.iter().find(|(id, _)| id == source_id) {
+                Self::analyze_schema(schema)
+            } else {
+                ColumnMetadata {
+                    numeric: Vec::new(),
+                    temporal: Vec::new(),
+                    categorical: Vec::new(),
+                    all: Vec::new(),
+                }
+            }
+        } else {
+            ColumnMetadata {
+                numeric: Vec::new(),
+                temporal: Vec::new(),
+                categorical: Vec::new(),
+                all: Vec::new(),
+            }
+        };
+        
         let templates = Self::create_templates(&columns);
         
         // Default navigation mode
@@ -300,7 +360,8 @@ impl ViewBuilderDialog {
         };
         
         Self {
-            schema,
+            data_sources,
+            selected_data_source,
             columns,
             templates,
             layout,
@@ -314,6 +375,11 @@ impl ViewBuilderDialog {
                 is_valid: false,
             },
         }
+    }
+    
+    /// Create a new modern view builder (legacy single source)
+    pub fn new(schema: Arc<Schema>) -> Self {
+        Self::new_multi(vec![("Default".to_string(), schema)])
     }
     
     /// Analyze schema and categorize columns
@@ -387,6 +453,7 @@ impl ViewBuilderDialog {
                             grid_span: (2, 1),
                             view_config: ViewConfig::TimeSeries {
                                 title: "Main Trends".to_string(),
+                                data_source_id: None,
                                 x_column: if !columns.temporal.is_empty() { 
                                     Some(columns.temporal[0].name.clone()) 
                                 } else { None },
@@ -399,6 +466,7 @@ impl ViewBuilderDialog {
                             grid_span: (1, 1),
                             view_config: ViewConfig::Scatter {
                                 title: "Correlation".to_string(),
+                                data_source_id: None,
                                 x_column: columns.numeric.get(0).map(|c| c.name.clone()).unwrap_or_default(),
                                 y_column: columns.numeric.get(1).map(|c| c.name.clone()).unwrap_or_default(),
                                 color_column: None,
@@ -410,6 +478,7 @@ impl ViewBuilderDialog {
                             grid_span: (1, 1),
                             view_config: ViewConfig::Table {
                                 title: "Data Inspector".to_string(),
+                                data_source_id: None,
                                 columns: vec![],
                             },
                         },
@@ -670,8 +739,8 @@ impl ViewBuilderDialog {
                 
                 self.show_plot_type_button_compact(ui, "🎲", "3D Scatter", PlotType::Scatter3D);
                 self.show_plot_type_button_compact(ui, "🏔️", "3D Surface", PlotType::Surface3D);
-                self.show_plot_type_button_compact(ui, "🌈", "Parallel", PlotType::ParallelCoordinates);
-                self.show_plot_type_button_compact(ui, "🎯", "Radar", PlotType::RadarChart);
+                self.show_plot_type_button_compact(ui, "🧭", "Polar", PlotType::PolarPlot);
+                self.show_plot_type_button_compact(ui, "🗺️", "Contour", PlotType::Contour);
             });
             
             ui.separator();
@@ -701,8 +770,17 @@ impl ViewBuilderDialog {
                         PlotType::Surface3D => "3D Surface",
                         PlotType::ParallelCoordinates => "Parallel Coordinates",
                         PlotType::RadarChart => "Radar Chart",
+                        PlotType::PolarPlot => "Polar Plot",
+                        PlotType::Contour => "Contour Plot",
+                        PlotType::Sankey => "Sankey Diagram",
+                        PlotType::Treemap => "Treemap",
+                        PlotType::Sunburst => "Sunburst",
+                        PlotType::NetworkGraph => "Network Graph",
                         PlotType::Distribution => "Distribution",
-                        _ => "Custom Plot",
+                        PlotType::TimeAnalysis => "Time Analysis",
+                        PlotType::GeoPlot => "Geographic Plot",
+                        PlotType::StreamGraph => "Stream Graph",
+                        PlotType::CandlestickChart => "Candlestick Chart",
                     };
                     
                     ui.label(egui::RichText::new(plot_name).size(13.0).strong().color(Color32::from_rgb(76, 175, 80)));
@@ -801,83 +879,174 @@ impl ViewBuilderDialog {
         match plot_type {
             PlotType::TimeSeries => ViewConfig::TimeSeries {
                 title: "Time Series".to_string(),
+                data_source_id: None,
                 x_column: None,
                 y_columns: vec![],
             },
             PlotType::Line => ViewConfig::Line {
                 title: "Line Plot".to_string(),
+                data_source_id: None,
                 x_column: None,
                 y_columns: vec![],
             },
             PlotType::Scatter => ViewConfig::Scatter {
                 title: "Scatter Plot".to_string(),
+                data_source_id: None,
                 x_column: String::new(),
                 y_column: String::new(),
                 color_column: None,
             },
             PlotType::BarChart => ViewConfig::BarChart {
                 title: "Bar Chart".to_string(),
+                data_source_id: None,
                 category_column: String::new(),
                 value_column: String::new(),
             },
             PlotType::Histogram => ViewConfig::Histogram {
                 title: "Histogram".to_string(),
+                data_source_id: None,
                 column: String::new(),
             },
             PlotType::Table => ViewConfig::Table {
                 title: "Data Table".to_string(),
+                data_source_id: None,
                 columns: vec![],
             },
             PlotType::BoxPlot => ViewConfig::BoxPlot {
                 title: "Box Plot".to_string(),
+                data_source_id: None,
                 value_column: String::new(),
                 category_column: None,
             },
             PlotType::ViolinPlot => ViewConfig::ViolinPlot {
                 title: "Violin Plot".to_string(),
+                data_source_id: None,
                 value_column: String::new(),
                 category_column: None,
             },
             PlotType::Heatmap => ViewConfig::Heatmap {
                 title: "Heatmap".to_string(),
+                data_source_id: None,
                 x_column: String::new(),
                 y_column: String::new(),
                 value_column: String::new(),
             },
             PlotType::AnomalyDetection => ViewConfig::AnomalyDetection {
                 title: "Anomaly Detection".to_string(),
+                data_source_id: None,
                 column: String::new(),
             },
             PlotType::CorrelationMatrix => ViewConfig::CorrelationMatrix {
                 title: "Correlation Matrix".to_string(),
+                data_source_id: None,
                 columns: vec![],
             },
             PlotType::Scatter3D => ViewConfig::Scatter3D {
                 title: "3D Scatter".to_string(),
+                data_source_id: None,
                 x_column: String::new(),
                 y_column: String::new(),
                 z_column: String::new(),
             },
             PlotType::Surface3D => ViewConfig::Surface3D {
                 title: "3D Surface".to_string(),
+                data_source_id: None,
                 x_column: String::new(),
                 y_column: String::new(),
                 z_column: String::new(),
             },
             PlotType::ParallelCoordinates => ViewConfig::ParallelCoordinates {
                 title: "Parallel Coordinates".to_string(),
+                data_source_id: None,
                 columns: vec![],
             },
             PlotType::RadarChart => ViewConfig::RadarChart {
                 title: "Radar Chart".to_string(),
+                data_source_id: None,
                 value_columns: vec![],
                 group_column: None,
             },
+            PlotType::PolarPlot => ViewConfig::PolarPlot {
+                title: "Polar Plot".to_string(),
+                data_source_id: None,
+                angle_column: String::new(),
+                radius_column: String::new(),
+                category_column: None,
+            },
+            PlotType::Contour => ViewConfig::Contour {
+                title: "Contour Plot".to_string(),
+                data_source_id: None,
+                x_column: String::new(),
+                y_column: String::new(),
+                z_column: String::new(),
+            },
+            PlotType::Sankey => ViewConfig::Sankey {
+                title: "Sankey Diagram".to_string(),
+                data_source_id: None,
+                source_column: String::new(),
+                target_column: String::new(),
+                value_column: String::new(),
+            },
+            PlotType::Treemap => ViewConfig::Treemap {
+                title: "Treemap".to_string(),
+                data_source_id: None,
+                category_column: String::new(),
+                value_column: String::new(),
+            },
+            PlotType::Sunburst => ViewConfig::Sunburst {
+                title: "Sunburst".to_string(),
+                data_source_id: None,
+                hierarchy_columns: vec![],
+                value_column: None,
+            },
+            PlotType::NetworkGraph => ViewConfig::NetworkGraph {
+                title: "Network Graph".to_string(),
+                data_source_id: None,
+                source_column: String::new(),
+                target_column: String::new(),
+            },
             PlotType::Distribution => ViewConfig::Distribution {
                 title: "Distribution".to_string(),
+                data_source_id: None,
                 column: String::new(),
             },
-            _ => ViewConfig::Empty,
+            PlotType::TimeAnalysis => ViewConfig::TimeAnalysis {
+                title: "Time Analysis".to_string(),
+                data_source_id: None,
+                time_column: String::new(),
+                value_columns: vec![],
+            },
+            PlotType::GeoPlot => ViewConfig::GeoPlot {
+                title: "Geographic Plot".to_string(),
+                data_source_id: None,
+                lat_column: String::new(),
+                lon_column: String::new(),
+                value_column: None,
+            },
+            PlotType::StreamGraph => ViewConfig::StreamGraph {
+                title: "Stream Graph".to_string(),
+                data_source_id: None,
+                time_column: String::new(),
+                value_column: String::new(),
+                category_column: None,
+            },
+            PlotType::CandlestickChart => ViewConfig::CandlestickChart {
+                title: "Candlestick Chart".to_string(),
+                data_source_id: None,
+                time_column: String::new(),
+                open_column: String::new(),
+                high_column: String::new(),
+                low_column: String::new(),
+                close_column: String::new(),
+            },
+            // All cases are handled above
+            PlotType::PolarPlot => ViewConfig::PolarPlot {
+                title: format!("Polar Plot"),
+                data_source_id: self.selected_data_source.clone(),
+                angle_column: String::new(),
+                radius_column: String::new(),
+                category_column: None,
+            },
         }
     }
     
@@ -885,8 +1054,103 @@ impl ViewBuilderDialog {
     fn show_plot_configuration_compact(&mut self, ui: &mut Ui) {
         let mut config = self.plot_config_state.config.clone();
         
+        // Data source selector - shown for all plot types
+        ui.horizontal(|ui| {
+            ui.label("Data Source:");
+            
+            let current_source = match &config {
+                ViewConfig::TimeSeries { data_source_id, .. } |
+                ViewConfig::Scatter { data_source_id, .. } |
+                ViewConfig::Table { data_source_id, .. } |
+                ViewConfig::BarChart { data_source_id, .. } |
+                ViewConfig::Histogram { data_source_id, .. } |
+                ViewConfig::Line { data_source_id, .. } |
+                ViewConfig::BoxPlot { data_source_id, .. } |
+                ViewConfig::ViolinPlot { data_source_id, .. } |
+                ViewConfig::Heatmap { data_source_id, .. } |
+                ViewConfig::AnomalyDetection { data_source_id, .. } |
+                ViewConfig::CorrelationMatrix { data_source_id, .. } |
+                ViewConfig::Scatter3D { data_source_id, .. } |
+                ViewConfig::Surface3D { data_source_id, .. } |
+                ViewConfig::ParallelCoordinates { data_source_id, .. } |
+                ViewConfig::RadarChart { data_source_id, .. } |
+                ViewConfig::PolarPlot { data_source_id, .. } |
+                ViewConfig::Distribution { data_source_id, .. } |
+                ViewConfig::SummaryStats { data_source_id, .. } => {
+                    data_source_id.as_deref().or(self.selected_data_source.as_deref()).unwrap_or("None")
+                }
+                _ => "None",
+            };
+            
+            egui::ComboBox::from_id_source("config_data_source")
+                .selected_text(current_source)
+                .width(ui.available_width() - 80.0)
+                .show_ui(ui, |ui| {
+                    for (source_id, _) in &self.data_sources {
+                        let is_selected = match &config {
+                            ViewConfig::TimeSeries { data_source_id, .. } |
+                            ViewConfig::Scatter { data_source_id, .. } |
+                            ViewConfig::Table { data_source_id, .. } |
+                            ViewConfig::BarChart { data_source_id, .. } |
+                            ViewConfig::Histogram { data_source_id, .. } |
+                            ViewConfig::Line { data_source_id, .. } |
+                            ViewConfig::BoxPlot { data_source_id, .. } |
+                            ViewConfig::ViolinPlot { data_source_id, .. } |
+                            ViewConfig::Heatmap { data_source_id, .. } |
+                            ViewConfig::AnomalyDetection { data_source_id, .. } |
+                            ViewConfig::CorrelationMatrix { data_source_id, .. } |
+                            ViewConfig::Scatter3D { data_source_id, .. } |
+                            ViewConfig::Surface3D { data_source_id, .. } |
+                            ViewConfig::ParallelCoordinates { data_source_id, .. } |
+                            ViewConfig::RadarChart { data_source_id, .. } |
+                            ViewConfig::PolarPlot { data_source_id, .. } |
+                            ViewConfig::Distribution { data_source_id, .. } |
+                            ViewConfig::SummaryStats { data_source_id, .. } => {
+                                data_source_id.as_ref() == Some(source_id)
+                            }
+                            _ => false,
+                        };
+                        
+                        if ui.selectable_label(is_selected, source_id).clicked() {
+                            // Update data source in config
+                            match &mut config {
+                                ViewConfig::TimeSeries { data_source_id, .. } |
+                                ViewConfig::Scatter { data_source_id, .. } |
+                                ViewConfig::Table { data_source_id, .. } |
+                                ViewConfig::BarChart { data_source_id, .. } |
+                                ViewConfig::Histogram { data_source_id, .. } |
+                                ViewConfig::Line { data_source_id, .. } |
+                                ViewConfig::BoxPlot { data_source_id, .. } |
+                                ViewConfig::ViolinPlot { data_source_id, .. } |
+                                ViewConfig::Heatmap { data_source_id, .. } |
+                                ViewConfig::AnomalyDetection { data_source_id, .. } |
+                                ViewConfig::CorrelationMatrix { data_source_id, .. } |
+                                ViewConfig::Scatter3D { data_source_id, .. } |
+                                ViewConfig::Surface3D { data_source_id, .. } |
+                                ViewConfig::ParallelCoordinates { data_source_id, .. } |
+                                ViewConfig::RadarChart { data_source_id, .. } |
+                                ViewConfig::PolarPlot { data_source_id, .. } |
+                                ViewConfig::Distribution { data_source_id, .. } |
+                                ViewConfig::SummaryStats { data_source_id, .. } => {
+                                    *data_source_id = Some(source_id.clone());
+                                }
+                                _ => {}
+                            }
+                            
+                            // Update selected data source and refresh columns
+                            self.selected_data_source = Some(source_id.clone());
+                            if let Some((_, schema)) = self.data_sources.iter().find(|(id, _)| id == source_id) {
+                                self.columns = Self::analyze_schema(schema);
+                            }
+                        }
+                    }
+                });
+        });
+        
+        ui.separator();
+        
         match &mut config {
-            ViewConfig::TimeSeries { title, x_column, y_columns } => {
+            ViewConfig::TimeSeries { title, data_source_id, x_column, y_columns } => {
                 ui.horizontal(|ui| {
                     ui.label("Title:");
                     ui.text_edit_singleline(title);
@@ -894,6 +1158,22 @@ impl ViewBuilderDialog {
                 
                 ui.add_space(4.0);
                 
+                ui.label("Data Source (optional):");
+                let current_data_source = data_source_id.as_ref().map(|s| s.as_str()).unwrap_or("Auto (Row Index)");
+                egui::ComboBox::from_id_source("config_ts_data_source")
+                    .selected_text(current_data_source)
+                    .width(ui.available_width())
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(data_source_id, None, "Auto (Row Index)");
+                        for col in &self.columns.temporal {
+                            ui.selectable_value(data_source_id, Some(col.name.clone()), &col.name);
+                        }
+                        for col in &self.columns.numeric {
+                            ui.selectable_value(data_source_id, Some(col.name.clone()), &col.name);
+                        }
+                    });
+                
+                ui.add_space(4.0);
                 ui.label("X-Axis (optional):");
                 let current_x = x_column.as_ref().map(|s| s.as_str()).unwrap_or("Auto (Row Index)");
                 egui::ComboBox::from_id_source("config_ts_x")
@@ -932,11 +1212,25 @@ impl ViewBuilderDialog {
                 self.plot_config_state.is_valid = any_selected;
             }
             
-            ViewConfig::Scatter { title, x_column, y_column, color_column } => {
+            ViewConfig::Scatter { title, data_source_id, x_column, y_column, color_column } => {
                 ui.horizontal(|ui| {
                     ui.label("Title:");
                     ui.text_edit_singleline(title);
                 });
+                
+                ui.add_space(4.0);
+                
+                ui.label("Data Source (optional):");
+                let current_data_source = data_source_id.as_ref().map(|s| s.as_str()).unwrap_or("Auto (Row Index)");
+                egui::ComboBox::from_id_source("config_scatter_data_source")
+                    .selected_text(current_data_source)
+                    .width(ui.available_width())
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(data_source_id, None, "Auto (Row Index)");
+                        for col in &self.columns.numeric {
+                            ui.selectable_value(data_source_id, Some(col.name.clone()), &col.name);
+                        }
+                    });
                 
                 ui.add_space(4.0);
                 
@@ -979,11 +1273,28 @@ impl ViewBuilderDialog {
                 self.plot_config_state.is_valid = !x_column.is_empty() && !y_column.is_empty();
             }
             
-            ViewConfig::BarChart { title, category_column, value_column } => {
+            ViewConfig::BarChart { title, data_source_id, category_column, value_column } => {
                 ui.horizontal(|ui| {
                     ui.label("Title:");
                     ui.text_edit_singleline(title);
                 });
+                
+                ui.add_space(4.0);
+                
+                ui.label("Data Source (optional):");
+                let current_data_source = data_source_id.as_ref().map(|s| s.as_str()).unwrap_or("Auto (Row Index)");
+                egui::ComboBox::from_id_source("config_bar_data_source")
+                    .selected_text(current_data_source)
+                    .width(ui.available_width())
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(data_source_id, None, "Auto (Row Index)");
+                        for col in &self.columns.categorical {
+                            ui.selectable_value(data_source_id, Some(col.name.clone()), &col.name);
+                        }
+                        for col in &self.columns.numeric {
+                            ui.selectable_value(data_source_id, Some(col.name.clone()), &col.name);
+                        }
+                    });
                 
                 ui.add_space(4.0);
                 
@@ -1015,11 +1326,25 @@ impl ViewBuilderDialog {
                 self.plot_config_state.is_valid = !category_column.is_empty() && !value_column.is_empty();
             }
             
-            ViewConfig::Histogram { title, column } => {
+            ViewConfig::Histogram { title, data_source_id, column } => {
                 ui.horizontal(|ui| {
                     ui.label("Title:");
                     ui.text_edit_singleline(title);
                 });
+                
+                ui.add_space(4.0);
+                
+                ui.label("Data Source (optional):");
+                let current_data_source = data_source_id.as_ref().map(|s| s.as_str()).unwrap_or("Auto (Row Index)");
+                egui::ComboBox::from_id_source("config_hist_data_source")
+                    .selected_text(current_data_source)
+                    .width(ui.available_width())
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(data_source_id, None, "Auto (Row Index)");
+                        for col in &self.columns.numeric {
+                            ui.selectable_value(data_source_id, Some(col.name.clone()), &col.name);
+                        }
+                    });
                 
                 ui.add_space(4.0);
                 
@@ -1036,11 +1361,25 @@ impl ViewBuilderDialog {
                 self.plot_config_state.is_valid = !column.is_empty();
             }
             
-            ViewConfig::Table { title, columns } => {
+            ViewConfig::Table { title, data_source_id, columns } => {
                 ui.horizontal(|ui| {
                     ui.label("Title:");
                     ui.text_edit_singleline(title);
                 });
+                
+                ui.add_space(4.0);
+                
+                ui.label("Data Source (optional):");
+                let current_data_source = data_source_id.as_ref().map(|s| s.as_str()).unwrap_or("Auto (Row Index)");
+                egui::ComboBox::from_id_source("config_table_data_source")
+                    .selected_text(current_data_source)
+                    .width(ui.available_width())
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(data_source_id, None, "Auto (Row Index)");
+                        for col in &self.columns.all {
+                            ui.selectable_value(data_source_id, Some(col.name.clone()), &col.name);
+                        }
+                    });
                 
                 ui.add_space(4.0);
                 
@@ -1071,21 +1410,7 @@ impl ViewBuilderDialog {
                 self.plot_config_state.is_valid = true; // Table is always valid
             }
             
-            _ => {
-                ui.label("Configuration for this plot type coming soon...");
-                self.plot_config_state.is_valid = false;
-            }
-        }
-        
-        self.plot_config_state.config = config;
-    }
-    
-    /// Show plot configuration UI (original version)
-    fn show_plot_configuration(&mut self, ui: &mut Ui) {
-        let mut config = self.plot_config_state.config.clone();
-        
-        match &mut config {
-            ViewConfig::TimeSeries { title, x_column, y_columns } => {
+            ViewConfig::BoxPlot { title, data_source_id, value_column, category_column } => {
                 ui.horizontal(|ui| {
                     ui.label("Title:");
                     ui.text_edit_singleline(title);
@@ -1093,45 +1418,48 @@ impl ViewBuilderDialog {
                 
                 ui.add_space(4.0);
                 
-                ui.label("X-Axis (optional):");
-                let current_x = x_column.as_ref().map(|s| s.as_str()).unwrap_or("Auto (Row Index)");
-                egui::ComboBox::from_id_source("config_ts_x")
-                    .selected_text(current_x)
+                ui.label("Data Source (optional):");
+                let current_data_source = data_source_id.as_ref().map(|s| s.as_str()).unwrap_or("Auto (Row Index)");
+                egui::ComboBox::from_id_source("config_box_data_source")
+                    .selected_text(current_data_source)
                     .width(ui.available_width())
                     .show_ui(ui, |ui| {
-                        ui.selectable_value(x_column, None, "Auto (Row Index)");
-                        for col in &self.columns.temporal {
-                            ui.selectable_value(x_column, Some(col.name.clone()), &col.name);
-                        }
+                        ui.selectable_value(data_source_id, None, "Auto (Row Index)");
                         for col in &self.columns.numeric {
-                            ui.selectable_value(x_column, Some(col.name.clone()), &col.name);
+                            ui.selectable_value(data_source_id, Some(col.name.clone()), &col.name);
                         }
                     });
                 
                 ui.add_space(4.0);
-                ui.label("Y-Axis (select one or more):");
                 
-                let mut any_selected = false;
-                for col in &self.columns.numeric {
-                    let mut selected = y_columns.contains(&col.name);
-                    if ui.checkbox(&mut selected, &col.name).changed() {
-                        if selected {
-                            if !y_columns.contains(&col.name) {
-                                y_columns.push(col.name.clone());
-                            }
-                        } else {
-                            y_columns.retain(|c| c != &col.name);
+                ui.label("Value:");
+                egui::ComboBox::from_id_source("config_box_val")
+                    .selected_text(if value_column.is_empty() { "Select..." } else { value_column.as_str() })
+                    .width(ui.available_width())
+                    .show_ui(ui, |ui| {
+                        for col in &self.columns.numeric {
+                            ui.selectable_value(value_column, col.name.clone(), &col.name);
                         }
-                    }
-                    if selected {
-                        any_selected = true;
-                    }
-                }
+                    });
                 
-                self.plot_config_state.is_valid = any_selected;
+                ui.add_space(4.0);
+                
+                ui.label("Category (optional):");
+                let current_category = category_column.as_ref().map(|s| s.as_str()).unwrap_or("None");
+                egui::ComboBox::from_id_source("config_box_cat")
+                    .selected_text(current_category)
+                    .width(ui.available_width())
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(category_column, None, "None");
+                        for col in &self.columns.categorical {
+                            ui.selectable_value(category_column, Some(col.name.clone()), &col.name);
+                        }
+                    });
+                
+                self.plot_config_state.is_valid = !value_column.is_empty();
             }
             
-            ViewConfig::Scatter { title, x_column, y_column, color_column } => {
+            ViewConfig::ViolinPlot { title, data_source_id, value_column, category_column } => {
                 ui.horizontal(|ui| {
                     ui.label("Title:");
                     ui.text_edit_singleline(title);
@@ -1139,8 +1467,71 @@ impl ViewBuilderDialog {
                 
                 ui.add_space(4.0);
                 
+                ui.label("Data Source (optional):");
+                let current_data_source = data_source_id.as_ref().map(|s| s.as_str()).unwrap_or("Auto (Row Index)");
+                egui::ComboBox::from_id_source("config_violin_data_source")
+                    .selected_text(current_data_source)
+                    .width(ui.available_width())
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(data_source_id, None, "Auto (Row Index)");
+                        for col in &self.columns.numeric {
+                            ui.selectable_value(data_source_id, Some(col.name.clone()), &col.name);
+                        }
+                    });
+                
+                ui.add_space(4.0);
+                
+                ui.label("Value:");
+                egui::ComboBox::from_id_source("config_violin_val")
+                    .selected_text(if value_column.is_empty() { "Select..." } else { value_column.as_str() })
+                    .width(ui.available_width())
+                    .show_ui(ui, |ui| {
+                        for col in &self.columns.numeric {
+                            ui.selectable_value(value_column, col.name.clone(), &col.name);
+                        }
+                    });
+                
+                ui.add_space(4.0);
+                
+                ui.label("Category (optional):");
+                let current_category = category_column.as_ref().map(|s| s.as_str()).unwrap_or("None");
+                egui::ComboBox::from_id_source("config_violin_cat")
+                    .selected_text(current_category)
+                    .width(ui.available_width())
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(category_column, None, "None");
+                        for col in &self.columns.categorical {
+                            ui.selectable_value(category_column, Some(col.name.clone()), &col.name);
+                        }
+                    });
+                
+                self.plot_config_state.is_valid = !value_column.is_empty();
+            }
+            
+            ViewConfig::Heatmap { title, data_source_id, x_column, y_column, value_column } => {
+                ui.horizontal(|ui| {
+                    ui.label("Title:");
+                    ui.text_edit_singleline(title);
+                });
+                
+                ui.add_space(4.0);
+                
+                ui.label("Data Source (optional):");
+                let current_data_source = data_source_id.as_ref().map(|s| s.as_str()).unwrap_or("Auto (Row Index)");
+                egui::ComboBox::from_id_source("config_heat_data_source")
+                    .selected_text(current_data_source)
+                    .width(ui.available_width())
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(data_source_id, None, "Auto (Row Index)");
+                        for col in &self.columns.numeric {
+                            ui.selectable_value(data_source_id, Some(col.name.clone()), &col.name);
+                        }
+                    });
+                
+                ui.add_space(4.0);
+                
                 ui.label("X-Axis:");
-                egui::ComboBox::from_id_source("config_scatter_x")
+                egui::ComboBox::from_id_source("config_heat_x")
                     .selected_text(if x_column.is_empty() { "Select..." } else { x_column.as_str() })
                     .width(ui.available_width())
                     .show_ui(ui, |ui| {
@@ -1152,7 +1543,7 @@ impl ViewBuilderDialog {
                 ui.add_space(4.0);
                 
                 ui.label("Y-Axis:");
-                egui::ComboBox::from_id_source("config_scatter_y")
+                egui::ComboBox::from_id_source("config_heat_y")
                     .selected_text(if y_column.is_empty() { "Select..." } else { y_column.as_str() })
                     .width(ui.available_width())
                     .show_ui(ui, |ui| {
@@ -1163,46 +1554,8 @@ impl ViewBuilderDialog {
                 
                 ui.add_space(4.0);
                 
-                ui.label("Color By (optional):");
-                let current_color = color_column.as_ref().map(|s| s.as_str()).unwrap_or("None");
-                egui::ComboBox::from_id_source("config_scatter_color")
-                    .selected_text(current_color)
-                    .width(ui.available_width())
-                    .show_ui(ui, |ui| {
-                        ui.selectable_value(color_column, None, "None");
-                        for col in &self.columns.categorical {
-                            ui.selectable_value(color_column, Some(col.name.clone()), &col.name);
-                        }
-                    });
-                
-                self.plot_config_state.is_valid = !x_column.is_empty() && !y_column.is_empty();
-            }
-            
-            ViewConfig::BarChart { title, category_column, value_column } => {
-                ui.horizontal(|ui| {
-                    ui.label("Title:");
-                    ui.text_edit_singleline(title);
-                });
-                
-                ui.add_space(4.0);
-                
-                ui.label("Category:");
-                egui::ComboBox::from_id_source("config_bar_cat")
-                    .selected_text(if category_column.is_empty() { "Select..." } else { category_column.as_str() })
-                    .width(ui.available_width())
-                    .show_ui(ui, |ui| {
-                        for col in &self.columns.categorical {
-                            ui.selectable_value(category_column, col.name.clone(), &col.name);
-                        }
-                        for col in &self.columns.numeric {
-                            ui.selectable_value(category_column, col.name.clone(), &col.name);
-                        }
-                    });
-                
-                ui.add_space(4.0);
-                
                 ui.label("Value:");
-                egui::ComboBox::from_id_source("config_bar_val")
+                egui::ComboBox::from_id_source("config_heat_val")
                     .selected_text(if value_column.is_empty() { "Select..." } else { value_column.as_str() })
                     .width(ui.available_width())
                     .show_ui(ui, |ui| {
@@ -1211,10 +1564,10 @@ impl ViewBuilderDialog {
                         }
                     });
                 
-                self.plot_config_state.is_valid = !category_column.is_empty() && !value_column.is_empty();
+                self.plot_config_state.is_valid = !x_column.is_empty() && !y_column.is_empty() && !value_column.is_empty();
             }
             
-            ViewConfig::Histogram { title, column } => {
+            ViewConfig::AnomalyDetection { title, data_source_id, column } => {
                 ui.horizontal(|ui| {
                     ui.label("Title:");
                     ui.text_edit_singleline(title);
@@ -1222,8 +1575,22 @@ impl ViewBuilderDialog {
                 
                 ui.add_space(4.0);
                 
+                ui.label("Data Source (optional):");
+                let current_data_source = data_source_id.as_ref().map(|s| s.as_str()).unwrap_or("Auto (Row Index)");
+                egui::ComboBox::from_id_source("config_anomaly_data_source")
+                    .selected_text(current_data_source)
+                    .width(ui.available_width())
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(data_source_id, None, "Auto (Row Index)");
+                        for col in &self.columns.numeric {
+                            ui.selectable_value(data_source_id, Some(col.name.clone()), &col.name);
+                        }
+                    });
+                
+                ui.add_space(4.0);
+                
                 ui.label("Column:");
-                egui::ComboBox::from_id_source("config_hist")
+                egui::ComboBox::from_id_source("config_anomaly")
                     .selected_text(if column.is_empty() { "Select..." } else { column.as_str() })
                     .width(ui.available_width())
                     .show_ui(ui, |ui| {
@@ -1235,11 +1602,25 @@ impl ViewBuilderDialog {
                 self.plot_config_state.is_valid = !column.is_empty();
             }
             
-            ViewConfig::Table { title, columns } => {
+            ViewConfig::CorrelationMatrix { title, data_source_id, columns } => {
                 ui.horizontal(|ui| {
                     ui.label("Title:");
                     ui.text_edit_singleline(title);
                 });
+                
+                ui.add_space(4.0);
+                
+                ui.label("Data Source (optional):");
+                let current_data_source = data_source_id.as_ref().map(|s| s.as_str()).unwrap_or("Auto (Row Index)");
+                egui::ComboBox::from_id_source("config_corr_data_source")
+                    .selected_text(current_data_source)
+                    .width(ui.available_width())
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(data_source_id, None, "Auto (Row Index)");
+                        for col in &self.columns.all {
+                            ui.selectable_value(data_source_id, Some(col.name.clone()), &col.name);
+                        }
+                    });
                 
                 ui.add_space(4.0);
                 
@@ -1268,6 +1649,374 @@ impl ViewBuilderDialog {
                 }
                 
                 self.plot_config_state.is_valid = true; // Table is always valid
+            }
+            
+            ViewConfig::Scatter3D { title, data_source_id, x_column, y_column, z_column } => {
+                ui.horizontal(|ui| {
+                    ui.label("Title:");
+                    ui.text_edit_singleline(title);
+                });
+                
+                ui.add_space(4.0);
+                
+                ui.label("Data Source (optional):");
+                let current_data_source = data_source_id.as_ref().map(|s| s.as_str()).unwrap_or("Auto (Row Index)");
+                egui::ComboBox::from_id_source("config_scatter3d_data_source")
+                    .selected_text(current_data_source)
+                    .width(ui.available_width())
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(data_source_id, None, "Auto (Row Index)");
+                        for col in &self.columns.numeric {
+                            ui.selectable_value(data_source_id, Some(col.name.clone()), &col.name);
+                        }
+                    });
+                
+                ui.add_space(4.0);
+                
+                ui.label("X-Axis:");
+                egui::ComboBox::from_id_source("config_scatter3d_x")
+                    .selected_text(if x_column.is_empty() { "Select..." } else { x_column.as_str() })
+                    .width(ui.available_width())
+                    .show_ui(ui, |ui| {
+                        for col in &self.columns.numeric {
+                            ui.selectable_value(x_column, col.name.clone(), &col.name);
+                        }
+                    });
+                
+                ui.add_space(4.0);
+                
+                ui.label("Y-Axis:");
+                egui::ComboBox::from_id_source("config_scatter3d_y")
+                    .selected_text(if y_column.is_empty() { "Select..." } else { y_column.as_str() })
+                    .width(ui.available_width())
+                    .show_ui(ui, |ui| {
+                        for col in &self.columns.numeric {
+                            ui.selectable_value(y_column, col.name.clone(), &col.name);
+                        }
+                    });
+                
+                ui.add_space(4.0);
+                
+                ui.label("Z-Axis:");
+                egui::ComboBox::from_id_source("config_scatter3d_z")
+                    .selected_text(if z_column.is_empty() { "Select..." } else { z_column.as_str() })
+                    .width(ui.available_width())
+                    .show_ui(ui, |ui| {
+                        for col in &self.columns.numeric {
+                            ui.selectable_value(z_column, col.name.clone(), &col.name);
+                        }
+                    });
+                
+                self.plot_config_state.is_valid = !x_column.is_empty() && !y_column.is_empty() && !z_column.is_empty();
+            }
+            
+            ViewConfig::Surface3D { title, data_source_id, x_column, y_column, z_column } => {
+                ui.horizontal(|ui| {
+                    ui.label("Title:");
+                    ui.text_edit_singleline(title);
+                });
+                
+                ui.add_space(4.0);
+                
+                ui.label("Data Source (optional):");
+                let current_data_source = data_source_id.as_ref().map(|s| s.as_str()).unwrap_or("Auto (Row Index)");
+                egui::ComboBox::from_id_source("config_surface3d_data_source")
+                    .selected_text(current_data_source)
+                    .width(ui.available_width())
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(data_source_id, None, "Auto (Row Index)");
+                        for col in &self.columns.numeric {
+                            ui.selectable_value(data_source_id, Some(col.name.clone()), &col.name);
+                        }
+                    });
+                
+                ui.add_space(4.0);
+                
+                ui.label("X-Axis:");
+                egui::ComboBox::from_id_source("config_surface3d_x")
+                    .selected_text(if x_column.is_empty() { "Select..." } else { x_column.as_str() })
+                    .width(ui.available_width())
+                    .show_ui(ui, |ui| {
+                        for col in &self.columns.numeric {
+                            ui.selectable_value(x_column, col.name.clone(), &col.name);
+                        }
+                    });
+                
+                ui.add_space(4.0);
+                
+                ui.label("Y-Axis:");
+                egui::ComboBox::from_id_source("config_surface3d_y")
+                    .selected_text(if y_column.is_empty() { "Select..." } else { y_column.as_str() })
+                    .width(ui.available_width())
+                    .show_ui(ui, |ui| {
+                        for col in &self.columns.numeric {
+                            ui.selectable_value(y_column, col.name.clone(), &col.name);
+                        }
+                    });
+                
+                ui.add_space(4.0);
+                
+                ui.label("Z-Axis:");
+                egui::ComboBox::from_id_source("config_surface3d_z")
+                    .selected_text(if z_column.is_empty() { "Select..." } else { z_column.as_str() })
+                    .width(ui.available_width())
+                    .show_ui(ui, |ui| {
+                        for col in &self.columns.numeric {
+                            ui.selectable_value(z_column, col.name.clone(), &col.name);
+                        }
+                    });
+                
+                self.plot_config_state.is_valid = !x_column.is_empty() && !y_column.is_empty() && !z_column.is_empty();
+            }
+            
+            ViewConfig::ParallelCoordinates { title, data_source_id, columns } => {
+                ui.horizontal(|ui| {
+                    ui.label("Title:");
+                    ui.text_edit_singleline(title);
+                });
+                
+                ui.add_space(4.0);
+                
+                ui.label("Data Source (optional):");
+                let current_data_source = data_source_id.as_ref().map(|s| s.as_str()).unwrap_or("Auto (Row Index)");
+                egui::ComboBox::from_id_source("config_parallel_data_source")
+                    .selected_text(current_data_source)
+                    .width(ui.available_width())
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(data_source_id, None, "Auto (Row Index)");
+                        for col in &self.columns.numeric {
+                            ui.selectable_value(data_source_id, Some(col.name.clone()), &col.name);
+                        }
+                    });
+                
+                ui.add_space(4.0);
+                
+                ui.label("Columns (optional, all if none):");
+                ui.horizontal(|ui| {
+                    if ui.small_button("All").clicked() {
+                        columns.clear();
+                        columns.extend(self.columns.numeric.iter().map(|c| c.name.clone()));
+                    }
+                    if ui.small_button("Clear").clicked() {
+                        columns.clear();
+                    }
+                });
+                
+                for col in &self.columns.numeric {
+                    let mut selected = columns.contains(&col.name);
+                    if ui.checkbox(&mut selected, &col.name).changed() {
+                        if selected {
+                            if !columns.contains(&col.name) {
+                                columns.push(col.name.clone());
+                            }
+                        } else {
+                            columns.retain(|c| c != &col.name);
+                        }
+                    }
+                }
+                
+                self.plot_config_state.is_valid = columns.len() >= 2;
+            }
+            
+            ViewConfig::RadarChart { title, data_source_id, value_columns, group_column } => {
+                ui.horizontal(|ui| {
+                    ui.label("Title:");
+                    ui.text_edit_singleline(title);
+                });
+                
+                ui.add_space(4.0);
+                
+                ui.label("Data Source (optional):");
+                let current_data_source = data_source_id.as_ref().map(|s| s.as_str()).unwrap_or("Auto (Row Index)");
+                egui::ComboBox::from_id_source("config_radar_data_source")
+                    .selected_text(current_data_source)
+                    .width(ui.available_width())
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(data_source_id, None, "Auto (Row Index)");
+                        for col in &self.columns.numeric {
+                            ui.selectable_value(data_source_id, Some(col.name.clone()), &col.name);
+                        }
+                    });
+                
+                ui.add_space(4.0);
+                
+                ui.label("Value Columns (optional, all if none):");
+                ui.horizontal(|ui| {
+                    if ui.small_button("All").clicked() {
+                        value_columns.clear();
+                        value_columns.extend(self.columns.numeric.iter().map(|c| c.name.clone()));
+                    }
+                    if ui.small_button("Clear").clicked() {
+                        value_columns.clear();
+                    }
+                });
+                
+                for col in &self.columns.numeric {
+                    let mut selected = value_columns.contains(&col.name);
+                    if ui.checkbox(&mut selected, &col.name).changed() {
+                        if selected {
+                            if !value_columns.contains(&col.name) {
+                                value_columns.push(col.name.clone());
+                            }
+                        } else {
+                            value_columns.retain(|c| c != &col.name);
+                        }
+                    }
+                }
+                
+                self.plot_config_state.is_valid = value_columns.len() >= 3;
+            }
+            
+            ViewConfig::PolarPlot { title, data_source_id, angle_column, radius_column, category_column } => {
+                ui.horizontal(|ui| {
+                    ui.label("Title:");
+                    ui.text_edit_singleline(title);
+                });
+                
+                ui.add_space(4.0);
+                
+                ui.label("Data Source:");
+                let current_data_source = data_source_id.as_ref().map(|s| s.as_str()).unwrap_or("");
+                egui::ComboBox::from_id_source("config_polar_data_source")
+                    .selected_text(if current_data_source.is_empty() { "Select..." } else { current_data_source })
+                    .width(ui.available_width())
+                    .show_ui(ui, |ui| {
+                        for (id, _) in &self.data_sources {
+                            ui.selectable_value(data_source_id, Some(id.clone()), id);
+                        }
+                    });
+                
+                ui.add_space(4.0);
+                
+                ui.label("Angle Column (0-360° or radians):");
+                egui::ComboBox::from_id_source("config_polar_angle")
+                    .selected_text(if angle_column.is_empty() { "Select..." } else { angle_column.as_str() })
+                    .width(ui.available_width())
+                    .show_ui(ui, |ui| {
+                        for col in &self.columns.numeric {
+                            ui.selectable_value(angle_column, col.name.clone(), &col.name);
+                        }
+                    });
+                
+                ui.add_space(4.0);
+                
+                ui.label("Radius Column:");
+                egui::ComboBox::from_id_source("config_polar_radius")
+                    .selected_text(if radius_column.is_empty() { "Select..." } else { radius_column.as_str() })
+                    .width(ui.available_width())
+                    .show_ui(ui, |ui| {
+                        for col in &self.columns.numeric {
+                            ui.selectable_value(radius_column, col.name.clone(), &col.name);
+                        }
+                    });
+                
+                ui.add_space(4.0);
+                
+                ui.label("Category/Color (optional):");
+                let current_category = category_column.as_ref().map(|s| s.as_str()).unwrap_or("None");
+                egui::ComboBox::from_id_source("config_polar_category")
+                    .selected_text(current_category)
+                    .width(ui.available_width())
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(category_column, None, "None");
+                        for col in &self.columns.categorical {
+                            ui.selectable_value(category_column, Some(col.name.clone()), &col.name);
+                        }
+                    });
+                
+                self.plot_config_state.is_valid = data_source_id.is_some() && !angle_column.is_empty() && !radius_column.is_empty();
+            }
+            
+            ViewConfig::Contour { title, data_source_id, x_column, y_column, z_column } => {
+                ui.horizontal(|ui| {
+                    ui.label("Title:");
+                    ui.text_edit_singleline(title);
+                });
+                
+                ui.add_space(4.0);
+                
+                ui.label("Data Source:");
+                let current_data_source = data_source_id.as_ref().map(|s| s.as_str()).unwrap_or("");
+                egui::ComboBox::from_id_source("config_contour_data_source")
+                    .selected_text(if current_data_source.is_empty() { "Select..." } else { current_data_source })
+                    .width(ui.available_width())
+                    .show_ui(ui, |ui| {
+                        for (id, _) in &self.data_sources {
+                            ui.selectable_value(data_source_id, Some(id.clone()), id);
+                        }
+                    });
+                
+                ui.add_space(4.0);
+                
+                ui.label("X Column:");
+                egui::ComboBox::from_id_source("config_contour_x")
+                    .selected_text(if x_column.is_empty() { "Select..." } else { x_column.as_str() })
+                    .width(ui.available_width())
+                    .show_ui(ui, |ui| {
+                        for col in &self.columns.numeric {
+                            ui.selectable_value(x_column, col.name.clone(), &col.name);
+                        }
+                    });
+                
+                ui.add_space(4.0);
+                
+                ui.label("Y Column:");
+                egui::ComboBox::from_id_source("config_contour_y")
+                    .selected_text(if y_column.is_empty() { "Select..." } else { y_column.as_str() })
+                    .width(ui.available_width())
+                    .show_ui(ui, |ui| {
+                        for col in &self.columns.numeric {
+                            ui.selectable_value(y_column, col.name.clone(), &col.name);
+                        }
+                    });
+                
+                ui.add_space(4.0);
+                
+                ui.label("Z Column (values):");
+                egui::ComboBox::from_id_source("config_contour_z")
+                    .selected_text(if z_column.is_empty() { "Select..." } else { z_column.as_str() })
+                    .width(ui.available_width())
+                    .show_ui(ui, |ui| {
+                        for col in &self.columns.numeric {
+                            ui.selectable_value(z_column, col.name.clone(), &col.name);
+                        }
+                    });
+                
+                self.plot_config_state.is_valid = data_source_id.is_some() && !x_column.is_empty() && !y_column.is_empty() && !z_column.is_empty();
+            }
+            
+            ViewConfig::Distribution { title, data_source_id, column } => {
+                ui.horizontal(|ui| {
+                    ui.label("Title:");
+                    ui.text_edit_singleline(title);
+                });
+                
+                ui.add_space(4.0);
+                
+                ui.label("Data Source:");
+                let current_data_source = data_source_id.as_ref().map(|s| s.as_str()).unwrap_or("");
+                egui::ComboBox::from_id_source("config_dist_data_source")
+                    .selected_text(if current_data_source.is_empty() { "Select..." } else { current_data_source })
+                    .width(ui.available_width())
+                    .show_ui(ui, |ui| {
+                        for (id, _) in &self.data_sources {
+                            ui.selectable_value(data_source_id, Some(id.clone()), id);
+                        }
+                    });
+                
+                ui.add_space(4.0);
+                
+                ui.label("Column to Analyze:");
+                egui::ComboBox::from_id_source("config_dist_column")
+                    .selected_text(if column.is_empty() { "Select..." } else { column.as_str() })
+                    .width(ui.available_width())
+                    .show_ui(ui, |ui| {
+                        for col in &self.columns.numeric {
+                            ui.selectable_value(column, col.name.clone(), &col.name);
+                        }
+                    });
+                
+                self.plot_config_state.is_valid = data_source_id.is_some() && !column.is_empty();
             }
             
             _ => {
@@ -1340,7 +2089,7 @@ impl ViewBuilderDialog {
             
             ui.add_space(20.0);
             
-            if ui.button("🗑️ Clear All").clicked() {
+                                if ui.button("✖ Clear All").clicked() {
                 self.layout.cells.clear();
                 self.selected_cell_id = None;
             }
@@ -1473,10 +2222,10 @@ impl ViewBuilderDialog {
                         ui.set_min_width(ui.available_width());
                         
                         ui.horizontal(|ui| {
-                            ui.label(egui::RichText::new("✏️ Selected Cell Properties").size(14.0).strong());
+                            ui.label(egui::RichText::new("✎ Selected Cell Properties").size(14.0).strong());
                             
                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                if ui.button("🗑️ Delete Cell").clicked() {
+                                if ui.button("✖ Delete Cell").clicked() {
                                     self.layout.cells.remove(cell_idx);
                                     self.selected_cell_id = None;
                                 }
@@ -1558,6 +2307,17 @@ impl ViewBuilderDialog {
             ViewConfig::Surface3D { title, .. } => ("🏔️", title.as_str()),
             ViewConfig::ParallelCoordinates { title, .. } => ("🌈", title.as_str()),
             ViewConfig::RadarChart { title, .. } => ("🎯", title.as_str()),
+            ViewConfig::PolarPlot { .. } => ("🧭", "Polar Plot"),
+            ViewConfig::Contour { .. } => ("🗺️", "Contour Plot"),
+            ViewConfig::Sankey { .. } => ("🧵", "Sankey Diagram"),
+            ViewConfig::Treemap { .. } => ("📊", "Treemap"),
+            ViewConfig::Sunburst { .. } => ("🌞", "Sunburst"),
+            ViewConfig::NetworkGraph { .. } => ("🌐", "Network Graph"),
+            ViewConfig::Distribution { .. } => ("📊", "Distribution"),
+            ViewConfig::TimeAnalysis { .. } => ("⏳", "Time Analysis"),
+            ViewConfig::GeoPlot { .. } => ("🌍", "Geographic Plot"),
+            ViewConfig::StreamGraph { .. } => ("🌊", "Stream Graph"),
+            ViewConfig::CandlestickChart { .. } => ("🕒", "Candlestick Chart"),
             _ => ("📊", "Plot"),
         };
         
@@ -1616,6 +2376,11 @@ impl ViewBuilderDialog {
                 !x_column.is_empty() && !y_column.is_empty() && !z_column.is_empty(),
             ViewConfig::ParallelCoordinates { columns, .. } => columns.len() >= 2,
             ViewConfig::RadarChart { value_columns, .. } => value_columns.len() >= 3,
+            ViewConfig::PolarPlot { angle_column, radius_column, .. } => 
+                !angle_column.is_empty() && !radius_column.is_empty(),
+            ViewConfig::Contour { x_column, y_column, z_column, .. } => 
+                !x_column.is_empty() && !y_column.is_empty() && !z_column.is_empty(),
+            ViewConfig::Distribution { column, .. } => !column.is_empty(),
             _ => false,
         }
     }
@@ -1742,127 +2507,166 @@ impl ViewBuilderDialog {
         
         for cell in &self.layout.cells {
             match &cell.view_config {
-                ViewConfig::TimeSeries { title, x_column, y_columns } => {
+                ViewConfig::TimeSeries { title, data_source_id, x_column, y_columns } => {
                     let id = uuid::Uuid::new_v4();
                     let mut view = TimeSeriesView::new(id, title.clone());
+                    view.config.data_source_id = data_source_id.clone();
                     view.config.x_column = x_column.clone();
                     view.config.y_columns = y_columns.clone();
                     view.config.show_legend = true;
                     view.config.show_grid = true;
                     views.push(Box::new(view));
                 }
-                ViewConfig::Scatter { title, x_column, y_column, color_column } => {
+                ViewConfig::Scatter { title, data_source_id, x_column, y_column, color_column } => {
                     let id = uuid::Uuid::new_v4();
                     let mut view = ScatterPlotView::new(id, title.clone());
+                    view.config.data_source_id = data_source_id.clone().unwrap_or_else(|| String::new());
                     view.config.x_column = x_column.clone();
                     view.config.y_column = y_column.clone();
                     view.config.color_column = color_column.clone();
                     views.push(Box::new(view));
                 }
-                ViewConfig::Table { title, columns: _ } => {
+                ViewConfig::Table { title, data_source_id, columns } => {
                     let id = uuid::Uuid::new_v4();
-                    let view = TableView::new(id, title.clone());
+                    let mut view = TableView::new(id, title.clone());
+                    view.config.data_source_id = data_source_id.clone();
                     views.push(Box::new(view));
                 }
-                ViewConfig::BarChart { title, category_column, value_column } => {
+                ViewConfig::BarChart { title, data_source_id, category_column, value_column } => {
                     let id = uuid::Uuid::new_v4();
                     let mut view = BarChartView::new(id, title.clone());
+                    view.config.data_source_id = data_source_id.clone().unwrap_or_else(|| String::new());
                     view.config.category_column = category_column.clone();
                     view.config.value_column = value_column.clone();
                     views.push(Box::new(view));
                 }
-                ViewConfig::Line { title, x_column, y_columns } => {
-                    use dv_views::LinePlotView;
+                ViewConfig::Line { title, data_source_id, x_column, y_columns } => {
+                    use dv_views::plots::LinePlotView;
                     let id = uuid::Uuid::new_v4();
                     let mut view = LinePlotView::new(id, title.clone());
+                    view.config.data_source_id = data_source_id.clone().unwrap_or_else(|| String::new());
                     view.config.x_column = x_column.clone();
                     view.config.y_columns = y_columns.clone();
                     views.push(Box::new(view));
                 }
-                ViewConfig::Histogram { title, column } => {
+                ViewConfig::Histogram { title, data_source_id, column } => {
                     use dv_views::plots::HistogramView;
                     let id = uuid::Uuid::new_v4();
                     let mut view = HistogramView::new(id, title.clone());
+                    view.config.data_source_id = data_source_id.clone();
                     view.config.column = column.clone();
                     views.push(Box::new(view));
                 }
-                ViewConfig::BoxPlot { title, value_column, category_column } => {
+                ViewConfig::BoxPlot { title, data_source_id, value_column, category_column } => {
                     use dv_views::plots::BoxPlotView;
                     let id = uuid::Uuid::new_v4();
                     let mut view = BoxPlotView::new(id, title.clone());
+                    view.config.data_source_id = data_source_id.clone();
                     view.config.value_column = value_column.clone();
                     view.config.category_column = category_column.clone();
                     views.push(Box::new(view));
                 }
-                ViewConfig::ViolinPlot { title, value_column, category_column } => {
+                ViewConfig::ViolinPlot { title, data_source_id, value_column, category_column } => {
                     use dv_views::plots::ViolinPlotView;
                     let id = uuid::Uuid::new_v4();
                     let mut view = ViolinPlotView::new(id, title.clone());
+                    view.config.data_source_id = data_source_id.clone().unwrap_or_else(|| String::new());
                     view.config.value_column = value_column.clone();
                     view.config.category_column = category_column.clone();
                     views.push(Box::new(view));
                 }
-                ViewConfig::Heatmap { title, x_column, y_column, value_column } => {
+                ViewConfig::Heatmap { title, data_source_id, x_column, y_column, value_column } => {
                     use dv_views::plots::HeatmapView;
                     let id = uuid::Uuid::new_v4();
                     let mut view = HeatmapView::new(id, title.clone());
+                    view.config.data_source_id = data_source_id.clone().unwrap_or_else(|| String::new());
                     view.config.x_column = x_column.clone();
                     view.config.y_column = y_column.clone();
                     view.config.value_column = value_column.clone();
                     views.push(Box::new(view));
                 }
-                ViewConfig::AnomalyDetection { title, column } => {
+                ViewConfig::AnomalyDetection { title, data_source_id, column } => {
                     use dv_views::plots::AnomalyDetectionView;
                     let id = uuid::Uuid::new_v4();
                     let mut view = AnomalyDetectionView::new(id, title.clone());
+                    view.config.data_source_id = data_source_id.clone().unwrap_or_else(|| String::new());
                     view.config.column = column.clone();
                     views.push(Box::new(view));
                 }
-                ViewConfig::CorrelationMatrix { title, columns } => {
+                ViewConfig::CorrelationMatrix { title, data_source_id, columns } => {
                     use dv_views::plots::CorrelationMatrixView;
                     let id = uuid::Uuid::new_v4();
                     let mut view = CorrelationMatrixView::new(id, title.clone());
+                    view.config.data_source_id = data_source_id.clone().unwrap_or_else(|| String::new());
                     view.config.columns = columns.clone();
                     views.push(Box::new(view));
                 }
-                ViewConfig::Scatter3D { title, x_column, y_column, z_column } => {
+                ViewConfig::Scatter3D { title, data_source_id, x_column, y_column, z_column } => {
                     use dv_views::plots::Scatter3DView;
                     let id = uuid::Uuid::new_v4();
                     let mut view = Scatter3DView::new(id, title.clone());
+                    view.config.data_source_id = data_source_id.clone().unwrap_or_else(|| String::new());
                     view.config.x_column = x_column.clone();
                     view.config.y_column = y_column.clone();
                     view.config.z_column = z_column.clone();
                     views.push(Box::new(view));
                 }
-                ViewConfig::Surface3D { title, x_column, y_column, z_column } => {
+                ViewConfig::Surface3D { title, data_source_id, x_column, y_column, z_column } => {
                     use dv_views::plots::Surface3DView;
                     let id = uuid::Uuid::new_v4();
                     let mut view = Surface3DView::new(id, title.clone());
+                    view.config.data_source_id = data_source_id.clone().unwrap_or_else(|| String::new());
                     view.config.x_column = x_column.clone();
                     view.config.y_column = y_column.clone();
                     view.config.z_column = z_column.clone();
                     views.push(Box::new(view));
                 }
-                ViewConfig::ParallelCoordinates { title, columns } => {
-                    use dv_views::ParallelCoordinatesView;
+                ViewConfig::ParallelCoordinates { title, data_source_id, columns } => {
+                    use dv_views::plots::ParallelCoordinatesView;
                     let id = uuid::Uuid::new_v4();
                     let mut view = ParallelCoordinatesView::new(id, title.clone());
+                    view.config.data_source_id = data_source_id.clone().unwrap_or_else(|| String::new());
                     view.config.columns = columns.clone();
                     views.push(Box::new(view));
                 }
-                ViewConfig::RadarChart { title, value_columns, group_column } => {
-                    use dv_views::RadarChart;
+                ViewConfig::RadarChart { title, data_source_id, value_columns, group_column } => {
+                    use dv_views::plots::RadarChart;
                     let id = uuid::Uuid::new_v4();
                     let mut view = RadarChart::new(id, title.clone());
+                    view.config.data_source_id = data_source_id.clone().unwrap_or_else(|| String::new());
                     view.config.value_columns = value_columns.clone();
                     view.config.group_column = group_column.clone();
                     views.push(Box::new(view));
                 }
-                ViewConfig::Distribution { title, column } => {
+                ViewConfig::Distribution { title, data_source_id, column } => {
                     use dv_views::plots::DistributionPlot;
                     let id = uuid::Uuid::new_v4();
                     let mut view = DistributionPlot::new(id, title.clone());
+                    view.config.data_source_id = data_source_id.clone().unwrap_or_else(|| String::new());
                     view.config.column = column.clone();
+                    views.push(Box::new(view));
+                }
+                ViewConfig::PolarPlot { title, data_source_id, angle_column, radius_column, category_column } => {
+                    use dv_views::PolarPlotView;
+                    let id = uuid::Uuid::new_v4();
+                    let mut view = PolarPlotView::new(id, title.clone());
+                    {
+                        let config = view.config_mut();
+                        config.data_source_id = data_source_id.clone();
+                        config.angle_column = angle_column.clone();
+                        config.radius_column = radius_column.clone();
+                        config.category_column = category_column.clone();
+                    }
+                    views.push(Box::new(view));
+                }
+                ViewConfig::Contour { title, data_source_id, x_column, y_column, z_column } => {
+                    use dv_views::plots::ContourPlot;
+                    let id = uuid::Uuid::new_v4();
+                    let mut view = ContourPlot::new(id, title.clone());
+                    view.config.data_source_id = data_source_id.clone().unwrap_or_else(|| String::new());
+                    view.config.x_column = x_column.clone();
+                    view.config.y_column = y_column.clone();
+                    view.config.z_column = z_column.clone();
                     views.push(Box::new(view));
                 }
                 _ => {}

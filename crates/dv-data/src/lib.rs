@@ -1,38 +1,80 @@
-//! Data layer for loading and managing data sources
-//! 
-//! This crate provides implementations for various data sources
-//! including CSV files and SQLite databases.
+//! Data handling and sources for the visualization platform
 
-pub mod sources;
 pub mod cache;
 pub mod index;
 pub mod schema;
+pub mod sources;
+pub mod config;
+pub mod memory;
 
-// Re-export commonly used types
-pub use sources::{CsvSource, SqliteSource};
-pub use cache::DataCache;
-pub use index::DataIndex;
-
+use arrow::error::ArrowError;
+use tokio::task::JoinError;
 use thiserror::Error;
 
-/// Errors that can occur in the data layer
+// Re-exports
+pub use cache::DataCache;
+pub use index::DataIndex;
+pub use sources::{CsvSource, SqliteSource, ConfiguredCsvSource};
+
+/// Errors that can occur in data operations
 #[derive(Error, Debug)]
 pub enum DataError {
-    #[error("IO error: {0}")]
+    #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
     
-    #[error("CSV error: {0}")]
-    Csv(#[from] csv::Error),
-    
     #[error("Arrow error: {0}")]
-    Arrow(#[from] arrow::error::ArrowError),
+    Arrow(ArrowError),
     
-    #[error("Schema detection failed: {0}")]
+    #[error("CSV parsing error: {0}")]
+    Csv(String),
+    
+    #[error("SQLite error: {0}")]
+    Sqlite(String),
+    
+    #[error("Schema detection error: {0}")]
     SchemaDetection(String),
     
-    #[error("Invalid position for navigation")]
+    #[error("Invalid navigation position")]
     InvalidPosition,
     
-    #[error("Data source error: {0}")]
+    #[error("Join error: {0}")]
+    Join(#[from] JoinError),
+    
+    #[error("Other error: {0}")]
     Other(String),
-} 
+}
+
+impl From<csv::Error> for DataError {
+    fn from(error: csv::Error) -> Self {
+        match error.kind() {
+            csv::ErrorKind::Io(io_err) => DataError::Io(std::io::Error::new(io_err.kind(), error.to_string())),
+            _ => DataError::Csv(error.to_string()),
+        }
+    }
+}
+
+impl From<ArrowError> for DataError {
+    fn from(error: ArrowError) -> Self {
+        DataError::Arrow(error)
+    }
+}
+
+/// Type inference result for a single column
+#[derive(Debug, Clone)]
+pub struct TypeInferenceResult {
+    pub name: String,
+    pub data_type: arrow::datatypes::DataType,
+    pub sample_values: Vec<String>,
+    pub null_count: usize,
+    pub row_count: usize,
+}
+
+/// Column info for file preview
+#[derive(Debug, Clone)]
+pub struct ColumnInfo {
+    pub name: String,
+    pub data_type: arrow::datatypes::DataType,
+}
+
+// Re-export core types
+pub use dv_core::data::DataSource; 

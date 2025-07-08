@@ -9,6 +9,7 @@ use crate::{SpaceView, SpaceViewId, SelectionState, ViewerContext};
 /// Configuration for correlation matrix view
 #[derive(Debug, Clone)]
 pub struct CorrelationMatrixConfig {
+    pub data_source_id: String,
     pub columns: Vec<String>,
     pub method: CorrelationMethod,
     pub show_values: bool,
@@ -25,6 +26,7 @@ pub enum CorrelationMethod {
 impl Default for CorrelationMatrixConfig {
     fn default() -> Self {
         Self {
+            data_source_id: String::new(),
             columns: Vec::new(),
             method: CorrelationMethod::Pearson,
             show_values: true,
@@ -51,7 +53,20 @@ impl CorrelationMatrixView {
 }
 
 impl SpaceView for CorrelationMatrixView {
-    fn id(&self) -> &SpaceViewId { &self.id }
+    fn id(&self) -> SpaceViewId { self.id }
+
+    fn title(&self) -> &str {
+        &self.title
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+    
     fn display_name(&self) -> &str { &self.title }
     fn view_type(&self) -> &str { "CorrelationMatrixView" }
     

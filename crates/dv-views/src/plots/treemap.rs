@@ -702,14 +702,28 @@ impl Treemap {
 }
 
 impl SpaceView for Treemap {
-    fn id(&self) -> &SpaceViewId { &self.id }
+    fn id(&self) -> SpaceViewId { self.id }
+    fn title(&self) -> &str {
+        &self.title
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+    
     fn display_name(&self) -> &str { &self.title }
     fn view_type(&self) -> &str { "TreemapView" }
     
     fn ui(&mut self, ctx: &ViewerContext, ui: &mut Ui) {
         // Update data if needed
         if self.cached_data.is_none() {
-            let data_source = ctx.data_source.read();
+            let data_sources = ctx.data_sources.read();
+
+            let data_source = data_sources.values().next();
             if let Some(source) = data_source.as_ref() {
                 let nav_pos = ctx.navigation.get_context().position.clone();
                 if let Ok(batch) = ctx.runtime_handle.block_on(source.query_at(&nav_pos)) {
