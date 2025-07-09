@@ -296,6 +296,11 @@ impl DataSource for DemoDataSource {
         Ok(self.total_rows)
     }
     
+    async fn query_all(&self) -> Result<RecordBatch> {
+        // Return all rows - for demo we limit to 1000 rows total
+        Ok(self.generate_batch(0, self.total_rows))
+    }
+    
     fn source_name(&self) -> &str {
         "Demo: Assembly Line & Manufacturing Analytics"
     }

@@ -111,9 +111,9 @@ impl SqliteSource {
     }
     
     /// Query data with limit and offset
-    async fn query_data(&self, limit: usize, offset: usize) -> Result<RecordBatch, DataError> {
+    async fn query_data(&self, limit: usize, offset: usize) -> anyhow::Result<RecordBatch> {
         let conn = Connection::open(&self.path)
-            .map_err(|e| DataError::Other(format!("Failed to open database: {}", e)))?;
+            .map_err(|e| anyhow::anyhow!("Failed to open database: {}", e))?;
         
         let query = format!(
             "SELECT * FROM {} LIMIT {} OFFSET {}",
@@ -121,7 +121,7 @@ impl SqliteSource {
         );
         
         let mut stmt = conn.prepare(&query)
-            .map_err(|e| DataError::Other(format!("Failed to prepare query: {}", e)))?;
+            .map_err(|e| anyhow::anyhow!("Failed to prepare query: {}", e))?;
         
         // Initialize column builders
         let mut builders: Vec<Box<dyn ArrayBuilder>> = self.schema.fields()
@@ -137,14 +137,14 @@ impl SqliteSource {
         
         // Execute query and build arrays
         let mut rows = stmt.query([])
-            .map_err(|e| DataError::Other(format!("Failed to execute query: {}", e)))?;
+            .map_err(|e| anyhow::anyhow!("Failed to execute query: {}", e))?;
         
         while let Some(row) = rows.next()
-            .map_err(|e| DataError::Other(format!("Failed to fetch row: {}", e)))? {
+            .map_err(|e| anyhow::anyhow!("Failed to fetch row: {}", e))? {
             
             for (col_idx, field) in self.schema.fields().iter().enumerate() {
                 let value = row.get_ref(col_idx)
-                    .map_err(|e| DataError::Other(format!("Failed to get column value: {}", e)))?;
+                    .map_err(|e| anyhow::anyhow!("Failed to get column value: {}", e))?;
                 
                 match (field.data_type(), &mut builders[col_idx]) {
                     (DataType::Int64, builder) => {
@@ -195,7 +195,7 @@ impl SqliteSource {
             .collect();
         
         RecordBatch::try_new(self.schema.clone(), arrays)
-            .map_err(|e| DataError::Arrow(e))
+            .map_err(|e| anyhow::anyhow!("Arrow error: {}", e))
     }
 }
 
@@ -238,13 +238,90 @@ impl dv_core::data::DataSource for SqliteSource {
     }
     
     async fn query_range(&self, range: &NavigationRange) -> anyhow::Result<RecordBatch> {
-        let (start, end) = match (&range.start, &range.end) {
-            (NavigationPosition::Sequential(s), NavigationPosition::Sequential(e)) => (*s, *e),
-            _ => return Err(DataError::InvalidPosition.into()),
-        };
+        self.query_at(&range.start).await
+    }
+    
+    async fn query_all(&self) -> anyhow::Result<RecordBatch> {
+        // Query all rows from the SQLite table
+        let conn = Connection::open(&self.path)
+            .map_err(|e| anyhow::anyhow!("Failed to open database for query_all: {}", e))?;
+        let query = format!("SELECT * FROM {} ORDER BY rowid", self.table_name);
+        let mut stmt = conn.prepare(&query)
+            .map_err(|e| anyhow::anyhow!("Failed to prepare query_all: {}", e))?;
         
-        let count = end.saturating_sub(start);
-        self.query_data(count, start).await.map_err(|e| e.into())
+        // Initialize column builders
+        let mut builders: Vec<Box<dyn ArrayBuilder>> = self.schema.fields()
+            .iter()
+            .map(|field| match field.data_type() {
+                DataType::Int64 => Box::new(Int64Builder::new()) as Box<dyn ArrayBuilder>,
+                DataType::Float64 => Box::new(Float64Builder::new()) as Box<dyn ArrayBuilder>,
+                DataType::Utf8 => Box::new(StringBuilder::new()) as Box<dyn ArrayBuilder>,
+                DataType::Boolean => Box::new(BooleanBuilder::new()) as Box<dyn ArrayBuilder>,
+                _ => Box::new(StringBuilder::new()) as Box<dyn ArrayBuilder>,
+            })
+            .collect();
+        
+        // Execute query and build arrays
+        let mut rows = stmt.query([])
+            .map_err(|e| anyhow::anyhow!("Failed to execute query_all: {}", e))?;
+        
+        while let Some(row) = rows.next()
+            .map_err(|e| anyhow::anyhow!("Failed to fetch row for query_all: {}", e))? {
+            
+            for (col_idx, field) in self.schema.fields().iter().enumerate() {
+                let value = row.get_ref(col_idx)
+                    .map_err(|e| anyhow::anyhow!("Failed to get column value for query_all: {}", e))?;
+                
+                match (field.data_type(), &mut builders[col_idx]) {
+                    (DataType::Int64, builder) => {
+                        let builder = builder.as_any_mut().downcast_mut::<Int64Builder>().unwrap();
+                        match value {
+                            ValueRef::Integer(i) => builder.append_value(i),
+                            ValueRef::Null => builder.append_null(),
+                            _ => builder.append_null(),
+                        }
+                    }
+                    (DataType::Float64, builder) => {
+                        let builder = builder.as_any_mut().downcast_mut::<Float64Builder>().unwrap();
+                        match value {
+                            ValueRef::Real(f) => builder.append_value(f),
+                            ValueRef::Integer(i) => builder.append_value(i as f64),
+                            ValueRef::Null => builder.append_null(),
+                            _ => builder.append_null(),
+                        }
+                    }
+                    (DataType::Boolean, builder) => {
+                        let builder = builder.as_any_mut().downcast_mut::<BooleanBuilder>().unwrap();
+                        match value {
+                            ValueRef::Integer(i) => builder.append_value(i != 0),
+                            ValueRef::Null => builder.append_null(),
+                            _ => builder.append_null(),
+                        }
+                    }
+                    (_, builder) => {
+                        let builder = builder.as_any_mut().downcast_mut::<StringBuilder>().unwrap();
+                        match value {
+                            ValueRef::Text(s) => {
+                                let text = std::str::from_utf8(s).unwrap_or("");
+                                builder.append_value(text);
+                            }
+                            ValueRef::Null => builder.append_null(),
+                            ValueRef::Integer(i) => builder.append_value(i.to_string()),
+                            ValueRef::Real(f) => builder.append_value(f.to_string()),
+                            _ => builder.append_null(),
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Build final arrays
+        let arrays: Vec<ArrayRef> = builders.into_iter()
+            .map(|mut builder| builder.finish())
+            .collect();
+        
+        RecordBatch::try_new(self.schema.clone(), arrays)
+            .map_err(|e| anyhow::anyhow!("Arrow error: {}", e))
     }
     
     async fn row_count(&self) -> anyhow::Result<usize> {

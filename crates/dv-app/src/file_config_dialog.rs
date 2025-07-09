@@ -1741,7 +1741,13 @@ impl FileConfigDialog {
                             .color(Color32::from_gray(150)));
                     });
                 }
-            });
+            } else {
+                ui.centered_and_justified(|ui| {
+                    ui.label(RichText::new("No tables selected")
+                        .size(16.0)
+                        .color(Color32::from_gray(150)));
+                });
+            }
         });
     }
 }

@@ -12,7 +12,7 @@ use ahash::AHashMap;
 use dv_core::navigation::{NavigationSpec, NavigationPosition, NavigationRange, NavigationMode};
 use crate::DataError;
 use crate::memory::{MemoryManager, estimate_batch_memory};
-use chrono::{DateTime, NaiveDateTime, Utc};
+use chrono::{DateTime, NaiveDateTime};
 
 /// Performance tuning constants
 const MAX_SAMPLE_ROWS: usize = 5000;  // Increased for better type detection
@@ -467,12 +467,12 @@ impl CsvSource {
         
         for format in &formats {
             if let Ok(dt) = NaiveDateTime::parse_from_str(value, format) {
-                return Some(dt.timestamp_millis());
+                return Some(dt.and_utc().timestamp_millis());
             }
             // Try without time component
             if let Ok(date) = chrono::NaiveDate::parse_from_str(value, format) {
                 let dt = date.and_hms_opt(0, 0, 0)?;
-                return Some(dt.timestamp_millis());
+                return Some(dt.and_utc().timestamp_millis());
             }
         }
         
@@ -522,16 +522,32 @@ impl dv_core::data::DataSource for CsvSource {
     }
     
     async fn query_range(&self, range: &NavigationRange) -> anyhow::Result<RecordBatch> {
-        let (start, end) = match (&range.start, &range.end) {
-            (NavigationPosition::Sequential(s), NavigationPosition::Sequential(e)) => (*s, *e),
-            _ => return Err(DataError::InvalidPosition.into()),
+        let spec = self.navigation_spec().await?;
+        let start_idx = match &range.start {
+            NavigationPosition::Sequential(idx) => *idx,
+            NavigationPosition::Temporal(ts) => {
+                // Convert timestamp to index - find first row >= timestamp
+                0 // TODO: Implement temporal lookup
+            }
+            NavigationPosition::Categorical(_) => 0,
         };
         
-        // For large ranges, limit to a reasonable size
-        let max_range = CHUNK_SIZE * 2;
-        let actual_end = end.min(start + max_range);
+        let end_idx = match &range.end {
+            NavigationPosition::Sequential(idx) => *idx,
+            NavigationPosition::Temporal(ts) => {
+                // Convert timestamp to index - find last row <= timestamp
+                self.row_count // TODO: Implement temporal lookup
+            }
+            NavigationPosition::Categorical(_) => self.row_count,
+        };
         
-        self.read_chunk(start, actual_end - start).await.map_err(|e| e.into())
+        let count = (end_idx - start_idx + 1).min(self.row_count as usize);
+        self.read_chunk(start_idx, count).await.map_err(|e| e.into())
+    }
+    
+    async fn query_all(&self) -> anyhow::Result<RecordBatch> {
+        // Query all rows from the CSV
+        self.read_chunk(0, self.row_count as usize).await.map_err(|e| e.into())
     }
     
     async fn row_count(&self) -> anyhow::Result<usize> {

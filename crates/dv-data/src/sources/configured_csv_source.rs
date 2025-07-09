@@ -426,12 +426,12 @@ impl ConfiguredCsvSource {
         
         for format in &formats {
             if let Ok(dt) = NaiveDateTime::parse_from_str(value, format) {
-                return Some(dt.timestamp_millis());
+                return Some(dt.and_utc().timestamp_millis());
             }
             // Try without time component
             if let Ok(date) = chrono::NaiveDate::parse_from_str(value, format) {
                 let dt = date.and_hms_opt(0, 0, 0)?;
-                return Some(dt.timestamp_millis());
+                return Some(dt.and_utc().timestamp_millis());
             }
         }
         
@@ -476,12 +476,32 @@ impl dv_core::data::DataSource for ConfiguredCsvSource {
     }
     
     async fn query_range(&self, range: &NavigationRange) -> anyhow::Result<RecordBatch> {
-        let (start, end) = match (&range.start, &range.end) {
-            (NavigationPosition::Sequential(s), NavigationPosition::Sequential(e)) => (*s, *e),
-            _ => return Err(DataError::InvalidPosition.into()),
+        let _spec = self.navigation_spec().await?;
+        let start_idx = match &range.start {
+            NavigationPosition::Sequential(idx) => *idx,
+            NavigationPosition::Temporal(_ts) => {
+                // Convert timestamp to index - find first row >= timestamp
+                0 // TODO: Implement temporal lookup
+            }
+            NavigationPosition::Categorical(_) => 0,
         };
         
-        self.read_chunk(start, end - start).await.map_err(|e| e.into())
+        let end_idx = match &range.end {
+            NavigationPosition::Sequential(idx) => *idx,
+            NavigationPosition::Temporal(_ts) => {
+                // Convert timestamp to index - find last row <= timestamp
+                self.row_count // TODO: Implement temporal lookup
+            }
+            NavigationPosition::Categorical(_) => self.row_count,
+        };
+        
+        let count = (end_idx - start_idx + 1).min(self.row_count);
+        self.read_chunk(start_idx, count).await.map_err(|e| e.into())
+    }
+    
+    async fn query_all(&self) -> anyhow::Result<RecordBatch> {
+        // Query all rows from the configured CSV
+        self.read_chunk(0, self.row_count).await.map_err(|e| e.into())
     }
     
     async fn row_count(&self) -> anyhow::Result<usize> {

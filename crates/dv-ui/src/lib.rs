@@ -13,7 +13,7 @@ use std::time::Instant;
 
 /// Re-export commonly used types
 pub use navigation_panel::NavigationPanel;
-pub use panels::*;
+// pub use panels::*;
 pub use shell::{AppShell, ShellConfig};
 pub use theme::{Theme, apply_theme};
 pub use widget_utils::{WidgetId, ScrollAreaExt, GridExt, widget_id, nested_widget_id};

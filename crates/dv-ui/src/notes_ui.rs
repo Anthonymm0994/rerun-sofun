@@ -61,7 +61,7 @@ impl<'a> NoteWidget<'a> {
             .stroke(Stroke::new(1.0, border_color))
             .inner_margin(8.0)
             .rounding(4.0)
-            .shadow(eframe::epaint::Shadow::small_light());
+            .shadow(egui::epaint::Shadow::small_light());
         
         let response = frame.show(ui, |ui| {
             ui.set_max_width(self.max_width * self.note.style.size_factor);
@@ -257,10 +257,10 @@ impl NoteEditor {
         }
         
         let mut action = None;
-        let mut visible = self.visible;
+        let mut should_close = false;
         
         Window::new(if self.note_id.is_some() { "Edit Note" } else { "New Note" })
-            .open(&mut visible)
+            .open(&mut self.visible)
             .resizable(true)
             .default_width(400.0)
             .show(ctx, |ui| {
@@ -350,17 +350,20 @@ impl NoteEditor {
                                 author: author.to_string(),
                             });
                             
-                            visible = false;
+                            should_close = true;
                         }
                         
                         if ui.button("Cancel").clicked() {
-                            visible = false;
+                            should_close = true;
                         }
                     });
                 });
             });
         
-        self.visible = visible;
+        if should_close {
+            self.visible = false;
+        }
+        
         action
     }
 }

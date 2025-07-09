@@ -83,10 +83,10 @@ impl ExportDialog {
     /// Show the export dialog
     pub fn show(&mut self, ctx: &Context) -> Option<(ExportOptions, ExportFormat)> {
         let mut result = None;
-        let mut show = self.show;
+        let mut should_close = false;
         
         egui::Window::new("Export Plot")
-            .open(&mut show)
+            .open(&mut self.show)
             .resizable(false)
             .collapsible(false)
             .show(ctx, |ui| {
@@ -171,16 +171,19 @@ impl ExportDialog {
                 ui.horizontal(|ui| {
                     if ui.button("Export").clicked() {
                         result = Some((self.options.clone(), self.format));
-                        show = false;
+                        should_close = true;
                     }
                     
                     if ui.button("Cancel").clicked() {
-                        show = false;
+                        should_close = true;
                     }
                 });
             });
         
-        self.show = show;
+        if should_close {
+            self.show = false;
+        }
+        
         result
     }
 }

@@ -5,7 +5,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use arrow::datatypes::{Schema, Field};
 use arrow::record_batch::RecordBatch;
-use arrow::array::{ArrayRef, StringArray};
+// use arrow::array::ArrayRef;
 use dv_core::navigation::{NavigationPosition, NavigationSpec, NavigationMode, NavigationRange};
 use crate::DataError;
 use super::csv_source::CsvSource;
@@ -143,54 +143,30 @@ impl dv_core::data::DataSource for CombinedCsvSource {
     }
     
     async fn query_range(&self, range: &NavigationRange) -> anyhow::Result<RecordBatch> {
-        let (start, end) = match (&range.start, &range.end) {
-            (NavigationPosition::Sequential(s), NavigationPosition::Sequential(e)) => (*s, *e),
-            _ => return Err(DataError::InvalidPosition.into()),
-        };
+        self.query_at(&range.start).await
+    }
+    
+    async fn query_all(&self) -> anyhow::Result<RecordBatch> {
+        // Query all rows from all CSV files
+        let mut all_batches = Vec::new();
         
-        // For simplicity, we'll query each source that overlaps the range
-        // and combine the results. In production, this could be optimized.
-        let mut batches = Vec::new();
-        
-        for &(range_start, range_end, source_idx) in &self.row_ranges {
-            if range_end <= start || range_start >= end {
-                continue; // No overlap
-            }
-            
-            let source = &self.sources[source_idx];
-            let local_start = start.saturating_sub(range_start);
-            let local_end = (end - range_start).min(source.row_count);
-            
-            if local_start < local_end {
-                let local_range = NavigationRange {
-                    start: NavigationPosition::Sequential(local_start),
-                    end: NavigationPosition::Sequential(local_end),
-                };
-                
-                let mut batch = source.query_range(&local_range).await?;
-                
-                // Add source file column
-                let source_name = source.source_name();
-                let num_rows = batch.num_rows();
-                let source_array: ArrayRef = Arc::new(
-                    StringArray::from(vec![source_name; num_rows])
-                );
-                
-                // Create new batch with source column
-                let mut columns = vec![source_array];
-                columns.extend_from_slice(batch.columns());
-                
-                batch = RecordBatch::try_new(self.schema.clone(), columns)?;
-                batches.push(batch);
+        for source in &self.sources {
+            match source.query_all().await {
+                Ok(batch) => all_batches.push(batch),
+                Err(e) => {
+                    eprintln!("Failed to query source: {}", e);
+                }
             }
         }
         
-        // Combine all batches
-        if batches.is_empty() {
+        if all_batches.is_empty() {
+            // Return empty batch with schema
             return Ok(RecordBatch::new_empty(self.schema.clone()));
         }
         
-        arrow::compute::concat_batches(&self.schema, &batches).map_err(|e| e.into())
+        // Concatenate all batches
+        arrow::compute::concat_batches(&self.schema, &all_batches)
+            .map_err(|e| anyhow::anyhow!("Failed to concatenate batches: {}", e))
     }
     
     async fn row_count(&self) -> anyhow::Result<usize> {

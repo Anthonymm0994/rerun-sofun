@@ -192,6 +192,27 @@ impl dv_core::data::DataSource for ConfiguredCombinedCsvSource {
         arrow::compute::concat_batches(&self.schema, &batches).map_err(|e| e.into())
     }
     
+    async fn query_all(&self) -> anyhow::Result<RecordBatch> {
+        // Query all rows from all sources
+        let mut all_batches = Vec::new();
+        
+        for (_idx, source) in self.sources.iter().enumerate() {
+            let batch = source.query_all().await?;
+            if batch.num_rows() > 0 {
+                all_batches.push(batch);
+            }
+        }
+        
+        if all_batches.is_empty() {
+            // Return empty batch with schema
+            return Ok(RecordBatch::new_empty(self.schema.clone()));
+        }
+        
+        // Concatenate all batches
+        arrow::compute::concat_batches(&self.schema, &all_batches)
+            .map_err(|e| anyhow::anyhow!("Failed to concatenate batches: {}", e))
+    }
+    
     async fn row_count(&self) -> anyhow::Result<usize> {
         Ok(self.total_rows)
     }

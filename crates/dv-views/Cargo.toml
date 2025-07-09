@@ -37,6 +37,7 @@ ndarray = "0.15"
 
 # For plot export
 image = { version = "0.24", features = ["png"] }
+rfd = "0.13"
 
 # 3D rendering support
 wgpu = "0.19"
