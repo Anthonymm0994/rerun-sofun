@@ -70,7 +70,7 @@ pub struct FrameTime {
 #[derive(Clone)]
 pub struct ViewerContext {
     /// Map of data sources by their unique ID (filename)
-    pub data_sources: Arc<RwLock<HashMap<String, Box<dyn crate::data::DataSource>>>>,
+    pub data_sources: Arc<RwLock<HashMap<String, Box<dyn crate::DataSource>>>>,
     
     /// Navigation engine
     pub navigation: Arc<crate::navigation::NavigationEngine>,

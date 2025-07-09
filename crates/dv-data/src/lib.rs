@@ -74,7 +74,4 @@ pub struct TypeInferenceResult {
 pub struct ColumnInfo {
     pub name: String,
     pub data_type: arrow::datatypes::DataType,
-}
-
-// Re-export core types
-pub use dv_core::data::DataSource; 
+} 

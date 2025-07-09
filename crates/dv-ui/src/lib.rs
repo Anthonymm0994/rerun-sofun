@@ -1,13 +1,13 @@
-//! User interface components for the data visualization platform
-//! 
-//! This crate provides the egui-based UI components including
-//! panels, controls, and layout management.
+//! UI components for the data visualization application
 
-pub mod panels;
-pub mod theme;
-pub mod shell;
 pub mod navigation_panel;
+pub mod panels;
+pub mod shell;
+pub mod theme;
 pub mod widget_utils;
+pub mod notes_ui;
+
+// Re-export commonly used items
 
 use std::time::Instant;
 

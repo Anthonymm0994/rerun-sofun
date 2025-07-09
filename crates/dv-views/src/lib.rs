@@ -6,7 +6,9 @@ pub mod stats;
 pub mod tables;
 pub mod time_series_view;
 pub mod viewport;
-pub mod polar_view;
+pub mod export;
+
+mod polar_view;
 
 // Re-export all components
 pub use space_view::{SpaceView, SpaceViewId, SpaceViewConfig, SelectionState};

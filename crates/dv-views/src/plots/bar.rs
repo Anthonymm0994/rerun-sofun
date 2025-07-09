@@ -1,7 +1,7 @@
 //! Bar chart implementation
 
 use egui::{Ui, Color32};
-use egui_plot::{Plot, Bar, BarChart};
+use egui_plot::{Plot, Bar, BarChart, Legend};
 use arrow::array::{Float64Array, Int64Array, StringArray, Array};
 use serde_json::{json, Value};
 
@@ -262,6 +262,7 @@ impl SpaceView for BarChartView {
         // Draw the bar chart
         if let Some(data) = &self.cached_data {
             let plot = Plot::new(format!("{:?}", self.id))
+                .legend(Legend::default())
                 .show_grid(self.config.show_grid)
                 .x_axis_label(&self.config.category_column)
                 .y_axis_label(&self.config.value_column)

@@ -7,6 +7,7 @@ use serde_json::{json, Value};
 use statrs::statistics::Statistics;
 
 use crate::{SpaceView, SpaceViewId, SelectionState, ViewerContext};
+use crate::export::{ExportDialog, show_export_button};
 use dv_core::navigation::NavigationPosition;
 
 /// Configuration for histogram view
@@ -78,6 +79,9 @@ pub struct HistogramView {
     // State
     cached_data: Option<HistogramData>,
     last_navigation_pos: Option<NavigationPosition>,
+    
+    // Export dialog
+    export_dialog: ExportDialog,
 }
 
 /// Cached histogram data
@@ -111,6 +115,7 @@ impl HistogramView {
             config: HistogramConfig::default(),
             cached_data: None,
             last_navigation_pos: None,
+            export_dialog: ExportDialog::default(),
         }
     }
     
@@ -129,10 +134,10 @@ impl HistogramView {
             data_sources.values().next()
         }?;
         
-        // Query data
-        let nav_pos = ctx.navigation.get_context().position.clone();
+        // Query ALL data, not just at current navigation position
+        // Histograms should show the full distribution
         let batch = ctx.runtime_handle.block_on(
-            data_source.query_at(&nav_pos)
+            data_source.query_all()
         ).ok()?;
         
         // Get the column
@@ -279,19 +284,24 @@ impl SpaceView for HistogramView {
     }
     
     fn ui(&mut self, ctx: &ViewerContext, ui: &mut Ui) {
+        // Handle export dialog
+        if let Some((options, format)) = self.export_dialog.show(ui.ctx()) {
+            // TODO: Implement actual export logic
+            tracing::info!("Export requested: {:?} format with options: {:?}", format, options);
+        }
         
-        // Update data if navigation changed or if we have no cached data
-        let nav_pos = ctx.navigation.get_context().position.clone();
-        if self.cached_data.is_none() || self.last_navigation_pos.as_ref() != Some(&nav_pos) {
+        // Only update data if we have no cached data
+        // Histograms show full dataset distribution and don't change with navigation
+        if self.cached_data.is_none() {
             self.cached_data = self.fetch_histogram_data(ctx);
-            self.last_navigation_pos = Some(nav_pos);
         }
         
         // Draw the histogram
         if let Some(data) = &self.cached_data {
-            // Show statistics if enabled
-            if self.config.show_stats {
-                ui.horizontal(|ui| {
+            // Add export button
+            ui.horizontal(|ui| {
+                // Show statistics if enabled
+                if self.config.show_stats {
                     ui.label(format!("Count: {}", data.statistics.count));
                     ui.separator();
                     ui.label(format!("Mean: {:.2}", data.statistics.mean));
@@ -301,9 +311,16 @@ impl SpaceView for HistogramView {
                     ui.label(format!("Min: {:.2}", data.statistics.min));
                     ui.separator();
                     ui.label(format!("Max: {:.2}", data.statistics.max));
+                }
+                
+                // Add export button at the right
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if show_export_button(ui, &format!("{:?}", self.id)) {
+                        self.export_dialog.show = true;
+                    }
                 });
-                ui.add_space(4.0);
-            }
+            });
+            ui.add_space(4.0);
             
             let plot = Plot::new(format!("{:?}", self.id))
                 .legend(Legend::default())

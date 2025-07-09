@@ -3,10 +3,11 @@
 //! This crate provides the fundamental abstractions and state management
 //! for the visualization system.
 
+pub mod events;
 pub mod navigation;
 pub mod state;
 pub mod sync;
-pub mod events;
+pub mod notes;
 
 // Re-export commonly used types
 pub use navigation::{
@@ -14,6 +15,7 @@ pub use navigation::{
     NavigationContext, NavigationSubscriber,
 };
 pub use state::{AppState, AppSettings, SpaceViewId, HoveredData, ViewerContext, TimeControl, FrameTime};
+pub use data::DataSource;
 
 // Placeholder modules that will be implemented in other crates
 pub mod data {

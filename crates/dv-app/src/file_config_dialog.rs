@@ -139,7 +139,7 @@ impl FileConfigDialog {
                         
                         match file_type {
                             FileType::Csv => self.show_csv_config_fullscreen(ui),
-                            FileType::Sqlite => self.show_sqlite_config_redesigned(ui),
+                            FileType::Sqlite => self.show_sqlite_config_fullscreen(ui),
                         }
                     } else {
                         // No files message
@@ -282,9 +282,7 @@ impl FileConfigDialog {
                     if let Some(first_line) = lines.get(0) {
                         config.detected_columns = first_line.clone();
                         // Select all columns by default
-                        if config.selected_columns.is_empty() {
-                            config.selected_columns = first_line.iter().cloned().collect();
-                        }
+                        config.selected_columns = first_line.iter().cloned().collect();
                     }
                     
                     // Check if we need type inference
@@ -601,7 +599,7 @@ impl FileConfigDialog {
         });
     }
     
-    /// Show redesigned SQLite configuration
+    /// Show redesigned SQLite configuration with better layout
     fn show_sqlite_config_redesigned(&mut self, ui: &mut Ui) {
         let Some(active_path) = self.config_manager.active_file.clone() else { return; };
         
@@ -618,85 +616,251 @@ impl FileConfigDialog {
                     if let Ok(mut stmt) = conn.prepare(query) {
                         if let Ok(tables) = stmt.query_map([], |row| row.get::<_, String>(0)) {
                             config.detected_columns = tables.filter_map(Result::ok).collect();
+                            // Select all tables by default
+                            for table in &config.detected_columns {
+                                config.selected_columns.insert(table.clone());
+                            }
                         }
                     }
                 }
             }
         }
         
-        ui.centered_and_justified(|ui| {
-            ui.group(|ui| {
-                ui.set_max_width(600.0);
+        // Two-column layout similar to CSV
+        ui.horizontal(|ui| {
+            // Left panel - Configuration options
+            ui.vertical(|ui| {
+                ui.set_width(500.0);
                 
-                ui.label(RichText::new("SQLite Database").size(20.0).strong());
-                ui.add_space(12.0);
-                
-                if let Some(config) = self.config_manager.configs.get(&active_path) {
-                    ui.label(RichText::new(format!("{}", config.file_name()))
-                        .size(14.0)
-                        .color(Color32::from_gray(180)));
-                }
-                
-                ui.add_space(20.0);
-                ui.separator();
-                ui.add_space(20.0);
-                
-                ui.label(RichText::new("Select Tables to Load").size(16.0));
-                ui.label(RichText::new("Each table will be loaded as a separate data source")
-                    .size(12.0)
-                    .color(Color32::from_gray(150)));
-                
-                ui.add_space(12.0);
-                
-                let detected_tables = self.config_manager.configs.get(&active_path)
-                    .map(|c| c.detected_columns.clone())
-                    .unwrap_or_default();
-                
-                if detected_tables.is_empty() {
-                    ui.label(RichText::new("No tables found in database")
+                // Database info
+                ui.group(|ui| {
+                    ui.set_width(ui.available_width());
+                    ui.label(RichText::new("🗄️ SQLite Database").size(18.0).strong());
+                    ui.add_space(8.0);
+                    
+                    if let Some(config) = self.config_manager.configs.get(&active_path) {
+                        ui.label(RichText::new(format!("File: {}", config.file_name()))
+                            .size(14.0)
+                            .color(Color32::from_gray(180)));
+                    }
+                    
+                    ui.add_space(8.0);
+                    
+                    // Get table count
+                    let table_count = self.config_manager.configs.get(&active_path)
+                        .map(|c| c.detected_columns.len())
+                        .unwrap_or(0);
+                    
+                    ui.label(RichText::new(format!("{} tables found", table_count))
                         .size(14.0)
                         .color(Color32::from_gray(150)));
-                } else {
-                    ScrollArea::vertical()
-                        .id_source("sqlite_tables_redesigned_scroll")
-                        .max_height(400.0)
-                        .show(ui, |ui| {
-                            for table in &detected_tables {
-                                let is_selected = self.config_manager.configs.get(&active_path)
-                                    .map(|c| c.selected_columns.contains(table))
-                                    .unwrap_or(false);
-                                
-                                let table_button = ui.add(
-                                    egui::SelectableLabel::new(is_selected, 
-                                        RichText::new(format!("{}", table))
-                                            .size(14.0)
-                                    )
-                                );
-                                
-                                if table_button.clicked() {
-                                    if let Some(config) = self.config_manager.configs.get_mut(&active_path) {
-                                        if is_selected {
-                                            config.selected_columns.remove(table);
-                                        } else {
-                                            config.selected_columns.insert(table.clone());
-                                        }
-                                    }
-                                }
-                            }
-                        });
+                });
+                
+                ui.add_space(12.0);
+                
+                // Table selection with grid layout
+                ui.group(|ui| {
+                    ui.set_width(ui.available_width());
+                    ui.label(RichText::new("📋 Table Selection").size(16.0).strong());
+                    ui.add_space(8.0);
                     
-                    ui.add_space(12.0);
-                    
+                    let detected_tables = self.config_manager.configs.get(&active_path)
+                        .map(|c| c.detected_columns.clone())
+                        .unwrap_or_default();
                     let selected_count = self.config_manager.configs.get(&active_path)
                         .map(|c| c.selected_columns.len())
                         .unwrap_or(0);
                     
-                    ui.label(RichText::new(format!("{} table{} selected", 
-                        selected_count,
-                        if selected_count == 1 { "" } else { "s" }
-                    ))
+                    ui.horizontal(|ui| {
+                        if ui.button("Select All").clicked() {
+                            if let Some(config) = self.config_manager.configs.get_mut(&active_path) {
+                                for table in &config.detected_columns {
+                                    config.selected_columns.insert(table.clone());
+                                }
+                            }
+                        }
+                        if ui.button("Deselect All").clicked() {
+                            if let Some(config) = self.config_manager.configs.get_mut(&active_path) {
+                                config.selected_columns.clear();
+                            }
+                        }
+                        ui.label(format!("{} / {} selected", selected_count, detected_tables.len()));
+                    });
+                    
+                    ui.separator();
+                    
+                    // Table grid
+                    ScrollArea::vertical()
+                        .id_source("sqlite_table_selection_scroll")
+                        .max_height(300.0)
+                        .show(ui, |ui| {
+                            Grid::new("sqlite_table_grid")
+                                .striped(true)
+                                .spacing([8.0, 4.0])
+                                .show(ui, |ui| {
+                                    // Headers
+                                    ui.label(RichText::new("Include").strong());
+                                    ui.label(RichText::new("Table Name").strong());
+                                    ui.label(RichText::new("Type").strong());
+                                    ui.end_row();
+                                    
+                                    for table in &detected_tables {
+                                        let mut selected = self.config_manager.configs.get(&active_path)
+                                            .map(|c| c.selected_columns.contains(table))
+                                            .unwrap_or(false);
+                                            
+                                        if ui.checkbox(&mut selected, "").changed() {
+                                            if let Some(config) = self.config_manager.configs.get_mut(&active_path) {
+                                                if selected {
+                                                    config.selected_columns.insert(table.clone());
+                                                } else {
+                                                    config.selected_columns.remove(table);
+                                                }
+                                            }
+                                        }
+                                        
+                                        ui.label(table);
+                                        ui.label(RichText::new("Table").color(Color32::from_rgb(100, 150, 200)));
+                                        
+                                        ui.end_row();
+                                    }
+                                });
+                        });
+                });
+                
+                ui.add_space(12.0);
+                
+                // Additional info
+                ui.group(|ui| {
+                    ui.set_width(ui.available_width());
+                    ui.label(RichText::new("💡 Tips").size(16.0).strong());
+                    ui.add_space(8.0);
+                    
+                    ui.label(RichText::new("• Each selected table will be loaded as a separate data source")
                         .size(12.0)
                         .color(Color32::from_gray(150)));
+                    ui.label(RichText::new("• You can analyze and visualize each table independently")
+                        .size(12.0)
+                        .color(Color32::from_gray(150)));
+                    ui.label(RichText::new("• Use the Dashboard Builder to create multi-table views")
+                        .size(12.0)
+                        .color(Color32::from_gray(150)));
+                });
+            });
+            
+            ui.separator();
+            
+            // Right panel - Table preview
+            ui.vertical(|ui| {
+                ui.label(RichText::new("📊 Table Preview").size(18.0).strong());
+                ui.add_space(8.0);
+                
+                // Table selector dropdown
+                let selected_tables: Vec<String> = self.config_manager.configs.get(&active_path)
+                    .map(|c| c.selected_columns.iter().cloned().collect())
+                    .unwrap_or_default();
+                
+                if !selected_tables.is_empty() {
+                    // Use first selected table as preview
+                    let preview_table = selected_tables[0].clone();
+                    
+                    ui.horizontal(|ui| {
+                        ui.label("Preview Table:");
+                        ui.label(RichText::new(&preview_table).strong());
+                    });
+                    
+                    ui.add_space(8.0);
+                    
+                    // Load and show preview data
+                    if let Some(config) = self.config_manager.configs.get(&active_path) {
+                        if let Ok(conn) = rusqlite::Connection::open(&config.path) {
+                            // Get column info
+                            let pragma_query = format!("PRAGMA table_info({})", preview_table);
+                            if let Ok(mut stmt) = conn.prepare(&pragma_query) {
+                                ui.label(RichText::new("Schema:").size(14.0).strong());
+                                
+                                ScrollArea::vertical()
+                                    .id_source("sqlite_schema_preview")
+                                    .max_height(200.0)
+                                    .show(ui, |ui| {
+                                        Grid::new("sqlite_schema_grid")
+                                            .striped(true)
+                                            .spacing([8.0, 2.0])
+                                            .show(ui, |ui| {
+                                                ui.label(RichText::new("Column").strong());
+                                                ui.label(RichText::new("Type").strong());
+                                                ui.end_row();
+                                                
+                                                if let Ok(columns) = stmt.query_map([], |row| {
+                                                    Ok((
+                                                        row.get::<_, String>(1)?, // name
+                                                        row.get::<_, String>(2)?  // type
+                                                    ))
+                                                }) {
+                                                    for col in columns.filter_map(Result::ok) {
+                                                        ui.label(&col.0);
+                                                        ui.label(RichText::new(&col.1).color(Color32::from_rgb(100, 150, 200)));
+                                                        ui.end_row();
+                                                    }
+                                                }
+                                            });
+                                    });
+                                
+                                ui.add_space(12.0);
+                            }
+                            
+                            // Show sample data
+                            let sample_query = format!("SELECT * FROM {} LIMIT 10", preview_table);
+                            if let Ok(mut stmt) = conn.prepare(&sample_query) {
+                                ui.label(RichText::new("Sample Data:").size(14.0).strong());
+                                
+                                // Get column names
+                                let column_names: Vec<String> = stmt.column_names()
+                                    .iter()
+                                    .map(|s| s.to_string())
+                                    .collect();
+                                
+                                ScrollArea::both()
+                                    .id_source("sqlite_data_preview")
+                                    .max_height(300.0)
+                                    .show(ui, |ui| {
+                                        Grid::new("sqlite_data_grid")
+                                            .striped(true)
+                                            .spacing([8.0, 2.0])
+                                            .show(ui, |ui| {
+                                                // Headers
+                                                for col_name in &column_names {
+                                                    ui.label(RichText::new(col_name).strong());
+                                                }
+                                                ui.end_row();
+                                                
+                                                // Data rows
+                                                if let Ok(mut rows) = stmt.query([]) {
+                                                    let mut row_count = 0;
+                                                    while let Ok(Some(row)) = rows.next() {
+                                                        for i in 0..column_names.len() {
+                                                            let value: String = row.get(i).unwrap_or_else(|_| "NULL".to_string());
+                                                            ui.label(RichText::new(value).size(12.0));
+                                                        }
+                                                        ui.end_row();
+                                                        
+                                                        row_count += 1;
+                                                        if row_count >= 10 {
+                                                            break;
+                                                        }
+                                                    }
+                                                }
+                                            });
+                                    });
+                            }
+                        }
+                    }
+                } else {
+                    ui.centered_and_justified(|ui| {
+                        ui.label(RichText::new("Select a table to preview")
+                            .size(16.0)
+                            .color(Color32::from_gray(150)));
+                    });
                 }
             });
         });
@@ -786,23 +950,10 @@ impl FileConfigDialog {
                             // Update detected columns with new headers
                             config.detected_columns = headers.clone();
                             
-                            // Clear and rebuild selected columns to only include valid columns
-                            let old_selected = config.selected_columns.clone();
+                            // Select all columns by default
                             config.selected_columns.clear();
-                            
-                            // Re-select columns that exist in the new headers
                             for col in headers.iter() {
-                                if old_selected.contains(col) || old_selected.is_empty() {
-                                    // Keep previously selected columns or select all if none were selected
-                                    config.selected_columns.insert(col.clone());
-                                }
-                            }
-                            
-                            // If no columns were selected (all old selections invalid), select all
-                            if config.selected_columns.is_empty() {
-                                for col in headers.iter() {
-                                    config.selected_columns.insert(col.clone());
-                                }
+                                config.selected_columns.insert(col.clone());
                             }
                             
                             // Update column types
@@ -990,9 +1141,7 @@ impl FileConfigDialog {
                     if let Some(first_line) = lines.get(0) {
                         config.detected_columns = first_line.clone();
                         // Select all columns by default
-                        if config.selected_columns.is_empty() {
-                            config.selected_columns = first_line.iter().cloned().collect();
-                        }
+                        config.selected_columns = first_line.iter().cloned().collect();
                     }
                     
                     // Check if we need type inference
@@ -1327,6 +1476,272 @@ impl FileConfigDialog {
                     ui.label("Loading preview...");
                 });
             }
+        });
+    }
+
+    /// Show redesigned SQLite configuration using full screen width
+    fn show_sqlite_config_fullscreen(&mut self, ui: &mut Ui) {
+        let Some(active_path) = self.config_manager.active_file.clone() else { return; };
+        
+        // Load table list if not loaded
+        let needs_loading = self.config_manager.configs.get(&active_path)
+            .map(|c| c.detected_columns.is_empty())
+            .unwrap_or(false);
+            
+        if needs_loading {
+            if let Some(config) = self.config_manager.configs.get_mut(&active_path) {
+                if let Ok(conn) = rusqlite::Connection::open(&config.path) {
+                    let query = "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'";
+                    
+                    if let Ok(mut stmt) = conn.prepare(query) {
+                        if let Ok(tables) = stmt.query_map([], |row| row.get::<_, String>(0)) {
+                            config.detected_columns = tables.filter_map(Result::ok).collect();
+                            // Select all tables by default
+                            for table in &config.detected_columns {
+                                config.selected_columns.insert(table.clone());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Split into left panel (config) and right panel (preview)
+        egui::SidePanel::left("config_panel")
+            .resizable(true)
+            .default_width(400.0)
+            .min_width(350.0)
+            .show_inside(ui, |ui| {
+                ScrollArea::vertical().show(ui, |ui| {
+                    // Database info
+                    ui.group(|ui| {
+                        ui.set_width(ui.available_width());
+                        ui.label(RichText::new("🗄️ SQLite Database").size(18.0).strong());
+                        ui.add_space(8.0);
+                        
+                        if let Some(config) = self.config_manager.configs.get(&active_path) {
+                            ui.label(RichText::new(format!("File: {}", config.file_name()))
+                                .size(14.0)
+                                .color(Color32::from_gray(180)));
+                        }
+                        
+                        ui.add_space(8.0);
+                        
+                        // Get table count
+                        let table_count = self.config_manager.configs.get(&active_path)
+                            .map(|c| c.detected_columns.len())
+                            .unwrap_or(0);
+                        
+                        ui.label(RichText::new(format!("{} tables found", table_count))
+                            .size(14.0)
+                            .color(Color32::from_gray(150)));
+                    });
+                    
+                    ui.add_space(12.0);
+                    
+                    // Table selection with grid layout
+                    ui.group(|ui| {
+                        ui.set_width(ui.available_width());
+                        ui.label(RichText::new("📋 Table Selection").size(16.0).strong());
+                        ui.add_space(8.0);
+                        
+                        let detected_tables = self.config_manager.configs.get(&active_path)
+                            .map(|c| c.detected_columns.clone())
+                            .unwrap_or_default();
+                        let selected_count = self.config_manager.configs.get(&active_path)
+                            .map(|c| c.selected_columns.len())
+                            .unwrap_or(0);
+                        
+                        ui.horizontal(|ui| {
+                            if ui.button("Select All").clicked() {
+                                if let Some(config) = self.config_manager.configs.get_mut(&active_path) {
+                                    for table in &config.detected_columns {
+                                        config.selected_columns.insert(table.clone());
+                                    }
+                                }
+                            }
+                            if ui.button("Deselect All").clicked() {
+                                if let Some(config) = self.config_manager.configs.get_mut(&active_path) {
+                                    config.selected_columns.clear();
+                                }
+                            }
+                            ui.label(format!("{} / {} selected", selected_count, detected_tables.len()));
+                        });
+                        
+                        ui.separator();
+                        
+                        // Table grid
+                        ScrollArea::vertical()
+                            .id_source("sqlite_table_selection_scroll")
+                            .max_height(300.0)
+                            .show(ui, |ui| {
+                                Grid::new("sqlite_table_grid")
+                                    .striped(true)
+                                    .spacing([8.0, 4.0])
+                                    .show(ui, |ui| {
+                                        // Headers
+                                        ui.label(RichText::new("Include").strong());
+                                        ui.label(RichText::new("Table Name").strong());
+                                        ui.label(RichText::new("Type").strong());
+                                        ui.end_row();
+                                        
+                                        for table in &detected_tables {
+                                            let mut selected = self.config_manager.configs.get(&active_path)
+                                                .map(|c| c.selected_columns.contains(table))
+                                                .unwrap_or(false);
+                                                
+                                            if ui.checkbox(&mut selected, "").changed() {
+                                                if let Some(config) = self.config_manager.configs.get_mut(&active_path) {
+                                                    if selected {
+                                                        config.selected_columns.insert(table.clone());
+                                                    } else {
+                                                        config.selected_columns.remove(table);
+                                                    }
+                                                }
+                                            }
+                                            
+                                            ui.label(table);
+                                            ui.label(RichText::new("Table").color(Color32::from_rgb(100, 150, 200)));
+                                            
+                                            ui.end_row();
+                                        }
+                                    });
+                            });
+                    });
+                    
+                    ui.add_space(12.0);
+                    
+                    // Additional info
+                    ui.group(|ui| {
+                        ui.set_width(ui.available_width());
+                        ui.label(RichText::new("💡 Tips").size(16.0).strong());
+                        ui.add_space(8.0);
+                        
+                        ui.label(RichText::new("• Each selected table will be loaded as a separate data source")
+                            .size(12.0)
+                            .color(Color32::from_gray(150)));
+                        ui.label(RichText::new("• You can analyze and visualize each table independently")
+                            .size(12.0)
+                            .color(Color32::from_gray(150)));
+                        ui.label(RichText::new("• Use the Dashboard Builder to create multi-table views")
+                            .size(12.0)
+                            .color(Color32::from_gray(150)));
+                    });
+                });
+            });
+        
+        // Right panel - Data preview uses remaining space
+        egui::CentralPanel::default().show_inside(ui, |ui| {
+            ui.label(RichText::new("📊 Data Preview").size(18.0).strong());
+            ui.add_space(8.0);
+            
+            // Table selector dropdown
+            let selected_tables: Vec<String> = self.config_manager.configs.get(&active_path)
+                .map(|c| c.selected_columns.iter().cloned().collect())
+                .unwrap_or_default();
+            
+            if !selected_tables.is_empty() {
+                // Use first selected table as preview
+                let preview_table = selected_tables[0].clone();
+                
+                ui.horizontal(|ui| {
+                    ui.label("Preview Table:");
+                    ui.label(RichText::new(&preview_table).strong());
+                });
+                
+                ui.add_space(8.0);
+                
+                // Load and show preview data
+                if let Some(config) = self.config_manager.configs.get(&active_path) {
+                    if let Ok(conn) = rusqlite::Connection::open(&config.path) {
+                        // Get column info
+                        let pragma_query = format!("PRAGMA table_info({})", preview_table);
+                        if let Ok(mut stmt) = conn.prepare(&pragma_query) {
+                            ui.label(RichText::new("Schema:").size(14.0).strong());
+                            
+                            ScrollArea::vertical()
+                                .id_source("sqlite_schema_preview")
+                                .max_height(200.0)
+                                .show(ui, |ui| {
+                                    Grid::new("sqlite_schema_grid")
+                                        .striped(true)
+                                        .spacing([8.0, 2.0])
+                                        .show(ui, |ui| {
+                                            ui.label(RichText::new("Column").strong());
+                                            ui.label(RichText::new("Type").strong());
+                                            ui.end_row();
+                                            
+                                            if let Ok(columns) = stmt.query_map([], |row| {
+                                                Ok((
+                                                    row.get::<_, String>(1)?, // name
+                                                    row.get::<_, String>(2)?  // type
+                                                ))
+                                            }) {
+                                                for col in columns.filter_map(Result::ok) {
+                                                    ui.label(&col.0);
+                                                    ui.label(RichText::new(&col.1).color(Color32::from_rgb(100, 150, 200)));
+                                                    ui.end_row();
+                                                }
+                                            }
+                                        });
+                                });
+                            
+                            ui.add_space(12.0);
+                        }
+                        
+                        // Show sample data
+                        let sample_query = format!("SELECT * FROM {} LIMIT 10", preview_table);
+                        if let Ok(mut stmt) = conn.prepare(&sample_query) {
+                            ui.label(RichText::new("Sample Data:").size(14.0).strong());
+                            
+                            // Get column names
+                            let column_names: Vec<String> = stmt.column_names()
+                                .iter()
+                                .map(|s| s.to_string())
+                                .collect();
+                            
+                            ScrollArea::both()
+                                .id_source("sqlite_data_preview")
+                                .max_height(300.0)
+                                .show(ui, |ui| {
+                                    Grid::new("sqlite_data_grid")
+                                        .striped(true)
+                                        .spacing([8.0, 2.0])
+                                        .show(ui, |ui| {
+                                            // Headers
+                                            for col_name in &column_names {
+                                                ui.label(RichText::new(col_name).strong());
+                                            }
+                                            ui.end_row();
+                                            
+                                            // Data rows
+                                            if let Ok(mut rows) = stmt.query([]) {
+                                                let mut row_count = 0;
+                                                while let Ok(Some(row)) = rows.next() {
+                                                    for i in 0..column_names.len() {
+                                                        let value: String = row.get(i).unwrap_or_else(|_| "NULL".to_string());
+                                                        ui.label(RichText::new(value).size(12.0));
+                                                    }
+                                                    ui.end_row();
+                                                    
+                                                    row_count += 1;
+                                                    if row_count >= 10 {
+                                                        break;
+                                                    }
+                                                }
+                                            }
+                                        });
+                                });
+                        }
+                    }
+                } else {
+                    ui.centered_and_justified(|ui| {
+                        ui.label(RichText::new("Select a table to preview")
+                            .size(16.0)
+                            .color(Color32::from_gray(150)));
+                    });
+                }
+            });
         });
     }
 }

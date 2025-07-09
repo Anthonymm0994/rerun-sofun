@@ -487,13 +487,9 @@ impl SpaceView for Scatter3DPlot {
             
             // Get the specific data source for this view
             let data_source = if let Some(source_id) = &self.config.data_source_id {
-            data_sources.get(source_id)
+                data_sources.get(source_id)
             } else {
-                (if let Some(source_id) = &self.config.data_source_id {
-        data_sources.get(source_id)
-    } else {
-        data_sources.values().next()
-    })
+                data_sources.values().next()
             };
             
             if let Some(source) = data_source {
