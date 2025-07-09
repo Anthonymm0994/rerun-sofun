@@ -286,8 +286,14 @@ impl SpaceView for HistogramView {
     fn ui(&mut self, ctx: &ViewerContext, ui: &mut Ui) {
         // Handle export dialog
         if let Some((options, format)) = self.export_dialog.show(ui.ctx()) {
-            // TODO: Implement actual export logic
-            tracing::info!("Export requested: {:?} format with options: {:?}", format, options);
+            if let Err(e) = crate::export::handle_export_request(
+                ui.ctx(),
+                &format!("histogram_{}", self.title),
+                &options,
+                format,
+            ) {
+                tracing::error!("Failed to export plot: {}", e);
+            }
         }
         
         // Only update data if we have no cached data

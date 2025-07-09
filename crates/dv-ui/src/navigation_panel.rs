@@ -3,7 +3,7 @@
 
 use egui::{Ui, Response, Sense, Color32, Vec2, Pos2, Rect, Stroke, Rounding, Align2, FontId};
 use dv_core::navigation::{NavigationEngine, NavigationMode, NavigationPosition, NavigationSpec};
-use dv_views::{ViewerContext, TimeControl};
+use dv_core::{ViewerContext, TimeControl};
 use std::sync::Arc;
 use parking_lot::RwLock;
 

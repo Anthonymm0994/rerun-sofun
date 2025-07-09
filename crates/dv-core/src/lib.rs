@@ -37,6 +37,9 @@ pub mod data {
         /// Query data for a range
         async fn query_range(&self, range: &NavigationRange) -> anyhow::Result<arrow::record_batch::RecordBatch>;
         
+        /// Query all data
+        async fn query_all(&self) -> anyhow::Result<arrow::record_batch::RecordBatch>;
+        
         /// Get total row count
         async fn row_count(&self) -> anyhow::Result<usize>;
         

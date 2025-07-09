@@ -83,9 +83,10 @@ impl ExportDialog {
     /// Show the export dialog
     pub fn show(&mut self, ctx: &Context) -> Option<(ExportOptions, ExportFormat)> {
         let mut result = None;
+        let mut show = self.show;
         
         egui::Window::new("Export Plot")
-            .open(&mut self.show)
+            .open(&mut show)
             .resizable(false)
             .collapsible(false)
             .show(ctx, |ui| {
@@ -170,15 +171,16 @@ impl ExportDialog {
                 ui.horizontal(|ui| {
                     if ui.button("Export").clicked() {
                         result = Some((self.options.clone(), self.format));
-                        self.show = false;
+                        show = false;
                     }
                     
                     if ui.button("Cancel").clicked() {
-                        self.show = false;
+                        show = false;
                     }
                 });
             });
         
+        self.show = show;
         result
     }
 }
@@ -243,6 +245,33 @@ pub fn save_image_to_file(image: &RgbaImage, path: &Path, format: ExportFormat) 
             // For PDF, we'd need a PDF library
             return Err("PDF export not yet implemented".into());
         }
+    }
+    
+    Ok(())
+}
+
+/// Helper function to handle the complete export flow with file dialog
+pub fn handle_export_request(
+    ctx: &Context,
+    plot_name: &str,
+    options: &ExportOptions,
+    format: ExportFormat,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Show file save dialog
+    if let Some(path) = rfd::FileDialog::new()
+        .set_title(&format!("Export {} as {}", plot_name, format.filter_name()))
+        .add_filter(format.filter_name(), &[format.extension()])
+        .set_file_name(&format!("{}.{}", plot_name, format.extension()))
+        .save_file()
+    {
+        // For now, create a placeholder image
+        // In a real implementation, this would capture the actual plot
+        let image = capture_plot_to_image(ctx, egui::Rect::NOTHING, options)?;
+        
+        // Save to file
+        save_image_to_file(&image, &path, format)?;
+        
+        tracing::info!("Exported plot to: {:?}", path);
     }
     
     Ok(())

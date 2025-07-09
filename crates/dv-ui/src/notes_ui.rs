@@ -1,6 +1,6 @@
 //! UI components for the note-taking system
 
-use egui::{*, pos2, vec2};
+use egui::*;
 use dv_core::notes::{Note, NoteAttachment, NoteId, NoteManager, NoteStyle};
 use std::collections::HashSet;
 
@@ -61,7 +61,7 @@ impl<'a> NoteWidget<'a> {
             .stroke(Stroke::new(1.0, border_color))
             .inner_margin(8.0)
             .rounding(4.0)
-            .shadow(Shadow::small_light());
+            .shadow(eframe::epaint::Shadow::small_light());
         
         let response = frame.show(ui, |ui| {
             ui.set_max_width(self.max_width * self.note.style.size_factor);
@@ -209,7 +209,6 @@ impl NoteIndicator {
         ui.painter().galley(
             rect.center() - galley.size() / 2.0,
             galley,
-            Color32::WHITE,
         );
         
         response.on_hover_text(format!("{} note(s)", self.count))
@@ -258,9 +257,10 @@ impl NoteEditor {
         }
         
         let mut action = None;
+        let mut visible = self.visible;
         
         Window::new(if self.note_id.is_some() { "Edit Note" } else { "New Note" })
-            .open(&mut self.visible)
+            .open(&mut visible)
             .resizable(true)
             .default_width(400.0)
             .show(ctx, |ui| {
@@ -350,16 +350,17 @@ impl NoteEditor {
                                 author: author.to_string(),
                             });
                             
-                            self.visible = false;
+                            visible = false;
                         }
                         
                         if ui.button("Cancel").clicked() {
-                            self.visible = false;
+                            visible = false;
                         }
                     });
                 });
             });
         
+        self.visible = visible;
         action
     }
 }
@@ -516,8 +517,8 @@ pub enum NotesPanelAction {
 /// Context menu for creating notes
 pub fn show_note_context_menu(
     ui: &mut Ui,
-    pos: Pos2,
-    attachment: NoteAttachment,
+    _pos: Pos2,
+    _attachment: NoteAttachment,
 ) -> bool {
     let mut create_note = false;
     
