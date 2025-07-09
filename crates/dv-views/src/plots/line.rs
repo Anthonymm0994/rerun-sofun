@@ -2,8 +2,9 @@
 
 use egui::{Ui, Color32};
 use egui_plot::{Plot, PlotPoints, Line, Legend};
-use arrow::array::{Float64Array, Int64Array, Array};
+use arrow::array::{Float64Array, Int64Array, StringArray, Array};
 use serde_json::{json, Value};
+use std::collections::{HashMap, BTreeMap};
 
 use crate::{SpaceView, SpaceViewId, SelectionState, ViewerContext};
 use dv_core::navigation::NavigationPosition;
@@ -17,6 +18,9 @@ pub struct LinePlotConfig {
     
     /// Y-axis columns (multiple lines)
     pub y_columns: Vec<String>,
+    
+    /// Optional category column for grouping
+    pub category_column: Option<String>,
     
     /// Line width
     pub line_width: f32,
@@ -56,6 +60,7 @@ impl Default for LinePlotConfig {
             data_source_id: None,
             x_column: None,
             y_columns: Vec::new(),
+            category_column: None,
             line_width: 2.0,
             show_points: false,
             point_radius: 3.0,
@@ -83,11 +88,13 @@ pub struct LinePlotView {
 struct LineData {
     x_values: Vec<f64>,
     y_series: Vec<LineSeries>,
+    category_map: Option<BTreeMap<String, Color32>>,
 }
 
 struct LineSeries {
     name: String,
     values: Vec<f64>,
+    category: Option<String>,
 }
 
 impl LinePlotView {
@@ -104,6 +111,9 @@ impl LinePlotView {
     
     /// Fetch line plot data
     fn fetch_data(&mut self, ctx: &ViewerContext) -> Option<LineData> {
+        tracing::info!("Fetching line plot data - Y columns: {:?}, Category: {:?}", 
+                      self.config.y_columns, self.config.category_column);
+        
         let data_sources = ctx.data_sources.read();
         
         // Get the specific data source for this view
@@ -145,25 +155,92 @@ impl LinePlotView {
             (0..batch.num_rows()).map(|i| i as f64).collect()
         };
         
+        // Extract categories if specified
+        let (categories, category_map) = if let Some(cat_col) = &self.config.category_column {
+            if let Some(cat_array) = batch.column_by_name(cat_col) {
+                let cats = Self::extract_string_values(cat_array);
+                
+                // Create color map with stable colors
+                let mut cat_map = BTreeMap::new();
+                let unique_cats: Vec<String> = cats.iter().cloned().collect::<std::collections::HashSet<_>>().into_iter().collect();
+                for (i, cat) in unique_cats.iter().enumerate() {
+                    cat_map.insert(cat.clone(), super::utils::colors::categorical_color(i));
+                }
+                
+                (Some(cats), Some(cat_map))
+            } else {
+                (None, None)
+            }
+        } else {
+            (None, None)
+        };
+        
         // Extract Y series
         let mut y_series = Vec::new();
-        for y_col in &self.config.y_columns {
-            if let Some(y_array) = batch.column_by_name(y_col) {
-                let values = Self::extract_numeric_values(y_array);
-                if !values.is_empty() {
-                    y_series.push(LineSeries {
-                        name: y_col.clone(),
-                        values,
-                    });
+        
+        if let Some(cats) = &categories {
+            // Group by category
+            let cat_map = category_map.as_ref()?;
+            
+            for y_col in &self.config.y_columns {
+                if let Some(y_array) = batch.column_by_name(y_col) {
+                    let y_values = Self::extract_numeric_values(y_array);
+                    
+                    // Group values by category
+                    let mut category_data: HashMap<String, (Vec<f64>, Vec<f64>)> = HashMap::new();
+                    
+                    for i in 0..x_values.len().min(y_values.len()).min(cats.len()) {
+                        let cat = &cats[i];
+                        let entry = category_data.entry(cat.clone()).or_insert((Vec::new(), Vec::new()));
+                        entry.0.push(x_values[i]);
+                        entry.1.push(y_values[i]);
+                    }
+                    
+                    // Create a series for each category
+                    for (cat, (x_vals, y_vals)) in category_data {
+                        // Sort by x values for proper line drawing
+                        let mut pairs: Vec<(f64, f64)> = x_vals.into_iter().zip(y_vals).collect();
+                        pairs.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+                        
+                        let sorted_x: Vec<f64> = pairs.iter().map(|(x, _)| *x).collect();
+                        let sorted_y: Vec<f64> = pairs.iter().map(|(_, y)| *y).collect();
+                        
+                        y_series.push(LineSeries {
+                            name: format!("{} - {}", y_col, cat),
+                            values: sorted_y,
+                            category: Some(cat),
+                        });
+                    }
                 }
             }
+            
+            // Return x_values as the full range for consistent plotting
+            Some(LineData { 
+                x_values: (0..range_size).map(|i| i as f64).collect(), 
+                y_series,
+                category_map,
+            })
+        } else {
+            // No categories - original behavior
+            for y_col in &self.config.y_columns {
+                if let Some(y_array) = batch.column_by_name(y_col) {
+                    let values = Self::extract_numeric_values(y_array);
+                    if !values.is_empty() {
+                        y_series.push(LineSeries {
+                            name: y_col.clone(),
+                            values,
+                            category: None,
+                        });
+                    }
+                }
+            }
+            
+            if y_series.is_empty() {
+                return None;
+            }
+            
+            Some(LineData { x_values, y_series, category_map: None })
         }
-        
-        if y_series.is_empty() {
-            return None;
-        }
-        
-        Some(LineData { x_values, y_series })
     }
     
     fn extract_numeric_values(array: &dyn Array) -> Vec<f64> {
@@ -185,6 +262,23 @@ impl LinePlotView {
             }).collect()
         } else {
             Vec::new()
+        }
+    }
+    
+    fn extract_string_values(array: &dyn Array) -> Vec<String> {
+        if let Some(str_array) = array.as_any().downcast_ref::<StringArray>() {
+            (0..str_array.len()).map(|i| {
+                if str_array.is_null(i) { 
+                    "null".to_string() 
+                } else { 
+                    str_array.value(i).to_string() 
+                }
+            }).collect()
+        } else {
+            // Try to convert other types to string
+            (0..array.len()).map(|i| {
+                arrow::util::display::array_value_to_string(array, i).unwrap_or_else(|_| "null".to_string())
+            }).collect()
         }
     }
 }
@@ -216,10 +310,7 @@ impl SpaceView for LinePlotView {
     
     fn set_data_source(&mut self, source_id: String) {
         self.config.data_source_id = Some(source_id);
-        // Clear any cached data
-        if let Some(cache_field) = self.as_any_mut().downcast_mut::<Self>() {
-            // Reset cached data if the plot has any
-        }
+        self.cached_data = None;
     }
     
     fn data_source_id(&self) -> Option<&str> {
@@ -246,79 +337,111 @@ impl SpaceView for LinePlotView {
                 .allow_boxed_zoom(true);
             
             plot.show(ui, |plot_ui| {
-                for (idx, series) in data.y_series.iter().enumerate() {
-                    let color = super::utils::colors::categorical_color(idx);
-                    
-                    // Create plot points
-                    let points: Vec<[f64; 2]> = data.x_values.iter()
-                        .zip(&series.values)
-                        .map(|(&x, &y)| [x, y])
-                        .collect();
-                    
-                    // Draw line
-                    let mut line = Line::new(PlotPoints::new(points.clone()))
-                        .color(color)
-                        .width(self.config.line_width)
-                        .name(&series.name);
-                    
-                    // Apply line style
-                    match self.config.line_style {
-                        LineStyle::Dashed => {
-                            line = line.style(egui_plot::LineStyle::Dashed { length: 10.0 });
-                        }
-                        LineStyle::Dotted => {
-                            line = line.style(egui_plot::LineStyle::Dotted { spacing: 10.0 });
-                        }
-                        LineStyle::Solid => {}
-                    }
-                    
-                    // Fill area if enabled
-                    if self.config.fill_area {
-                        line = line.fill(0.0);
-                    }
-                    
-                    plot_ui.line(line);
-                    
-                    // Show points if enabled
-                    if self.config.show_points {
-                        plot_ui.points(
-                            egui_plot::Points::new(points)
-                                .color(color)
-                                .radius(self.config.point_radius)
-                        );
-                    }
-                }
-                
-                // Handle hover
-                if let Some(pointer_coord) = plot_ui.pointer_coordinate() {
-                    let hover_x = pointer_coord.x;
-                    
-                    // Find closest x value
-                    if let Some((x_idx, &x_val)) = data.x_values.iter()
-                        .enumerate()
-                        .min_by(|(_, a), (_, b)| {
-                            (*a - hover_x).abs().partial_cmp(&(*b - hover_x).abs()).unwrap()
-                        }) {
+                // If we have categories, use category colors
+                if let Some(cat_map) = &data.category_map {
+                    for series in &data.y_series {
+                        let color = if let Some(cat) = &series.category {
+                            *cat_map.get(cat).unwrap_or(&Color32::GRAY)
+                        } else {
+                            Color32::GRAY
+                        };
                         
-                        // Highlight points at this x value
-                        for (series_idx, series) in data.y_series.iter().enumerate() {
-                            if let Some(&y_val) = series.values.get(x_idx) {
-                                let color = super::utils::colors::categorical_color(series_idx);
+                        // For categorized data, we need to reconstruct the points
+                        let points: Vec<[f64; 2]> = series.values.iter()
+                            .enumerate()
+                            .map(|(i, &y)| [i as f64, y])
+                            .collect();
+                        
+                        if !points.is_empty() {
+                            // Draw line
+                            let mut line = Line::new(PlotPoints::new(points.clone()))
+                                .color(color)
+                                .width(self.config.line_width)
+                                .name(&series.name);
+                            
+                            // Apply line style
+                            match self.config.line_style {
+                                LineStyle::Dashed => {
+                                    line = line.style(egui_plot::LineStyle::Dashed { length: 10.0 });
+                                }
+                                LineStyle::Dotted => {
+                                    line = line.style(egui_plot::LineStyle::Dotted { spacing: 10.0 });
+                                }
+                                LineStyle::Solid => {}
+                            }
+                            
+                            // Fill area if enabled
+                            if self.config.fill_area {
+                                line = line.fill(0.0);
+                            }
+                            
+                            plot_ui.line(line);
+                            
+                            // Show points if enabled
+                            if self.config.show_points {
                                 plot_ui.points(
-                                    egui_plot::Points::new(vec![[x_val, y_val]])
+                                    egui_plot::Points::new(points)
                                         .color(color)
-                                        .radius(self.config.point_radius * 2.0)
+                                        .radius(self.config.point_radius)
                                 );
-                                
-                                // Update hover data
-                                let mut hover_data = ctx.hovered_data.write();
-                                hover_data.point_index = Some(x_idx);
-                                hover_data.x = x_val;
-                                hover_data.y = y_val;
-                                hover_data.column = series.name.clone();
                             }
                         }
                     }
+                } else {
+                    // Original behavior for non-categorized data
+                    for (idx, series) in data.y_series.iter().enumerate() {
+                        let color = super::utils::colors::categorical_color(idx);
+                        
+                        // Create plot points
+                        let points: Vec<[f64; 2]> = data.x_values.iter()
+                            .zip(&series.values)
+                            .map(|(&x, &y)| [x, y])
+                            .collect();
+                        
+                        // Draw line
+                        let mut line = Line::new(PlotPoints::new(points.clone()))
+                            .color(color)
+                            .width(self.config.line_width)
+                            .name(&series.name);
+                        
+                        // Apply line style
+                        match self.config.line_style {
+                            LineStyle::Dashed => {
+                                line = line.style(egui_plot::LineStyle::Dashed { length: 10.0 });
+                            }
+                            LineStyle::Dotted => {
+                                line = line.style(egui_plot::LineStyle::Dotted { spacing: 10.0 });
+                            }
+                            LineStyle::Solid => {}
+                        }
+                        
+                        // Fill area if enabled
+                        if self.config.fill_area {
+                            line = line.fill(0.0);
+                        }
+                        
+                        plot_ui.line(line);
+                        
+                        // Show points if enabled
+                        if self.config.show_points {
+                            plot_ui.points(
+                                egui_plot::Points::new(points)
+                                    .color(color)
+                                    .radius(self.config.point_radius)
+                            );
+                        }
+                    }
+                }
+                
+                // Handle hover - simplified for now
+                if let Some(pointer_coord) = plot_ui.pointer_coordinate() {
+                    let hover_x = pointer_coord.x;
+                    
+                    // Update hover data with basic info
+                    let mut hover_data = ctx.hovered_data.write();
+                    hover_data.point_index = Some(hover_x as usize);
+                    hover_data.x = hover_x;
+                    hover_data.y = pointer_coord.y;
                 }
             });
         } else {
@@ -333,6 +456,7 @@ impl SpaceView for LinePlotView {
         json!({
             "x_column": self.config.x_column,
             "y_columns": self.config.y_columns,
+            "category_column": self.config.category_column,
             "line_width": self.config.line_width,
             "show_points": self.config.show_points,
             "point_radius": self.config.point_radius,
@@ -357,6 +481,9 @@ impl SpaceView for LinePlotView {
                 .filter_map(|v| v.as_str())
                 .map(|s| s.to_string())
                 .collect();
+        }
+        if let Some(cat_col) = config.get("category_column").and_then(|v| v.as_str()) {
+            self.config.category_column = Some(cat_col.to_string());
         }
         if let Some(width) = config.get("line_width").and_then(|v| v.as_f64()) {
             self.config.line_width = width as f32;

@@ -1766,7 +1766,7 @@ impl eframe::App for FrogApp {
             let dt = ctx.input(|i| i.stable_dt);
             
             // Calculate frames to advance using accumulator for smooth playback
-            let frames_per_second = speed * 30.0; // Base rate of 30 FPS
+            let frames_per_second = speed * 15.0; // Reduced from 30.0 to 15.0 for slower playback
             self.frame_accumulator += frames_per_second * dt as f64;
             
             // Only advance when we've accumulated at least one frame
@@ -2006,7 +2006,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize tracing
     tracing_subscriber::fmt::init();
     
-    info!("Starting F.R.O.G. - Flexible Rust Overlay for Graphs 🐸");
+    info!("Starting F.R.O.G. - Fast, Responsive, Organized Graphics 🐸");
     
     // Create a simple F.R.O.G. icon (32x32 green frog head)
     let icon_data = create_frog_icon();
@@ -2026,7 +2026,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     
     eframe::run_native(
-        "F.R.O.G. - Flexible Rust Overlay for Graphs 🐸",
+        "F.R.O.G. - Fast, Responsive, Organized Graphics 🐸",
         options,
         Box::new(|cc| {
             Box::new(FrogApp::new(cc))

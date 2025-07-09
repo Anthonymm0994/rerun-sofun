@@ -589,7 +589,7 @@ impl SpaceView for SunburstChart {
             
             // Animate transitions
             if self.config.animate_transitions && self.animation_progress < 1.0 {
-                self.animation_progress += ui.input(|i| i.stable_dt) * 3.0;
+                self.animation_progress += ui.input(|i| i.stable_dt) * 1.0; // Reduced from 3.0
                 self.animation_progress = self.animation_progress.min(1.0);
                 ui.ctx().request_repaint();
             }

@@ -1,0 +1,64 @@
+# Exclude from archives
+/target/
+/.git/
+/.cargo/registry/
+/.cargo/git/
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Build artifacts
+*.pdb
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test outputs
+/screenshots/
+/recordings/
+/coverage/
+*.profraw
+*.profdata
+
+# User data
+/user_data/
+/output/
+
+# Temporary files
+*.tmp
+*.temp
+*.log
+*.bak
+*.backup
+
+# Large data files
+*.db-journal
+*.db-wal
+*.db-shm
+/data/*.csv
+/data/*.db
+
+# Documentation builds
+/target/doc/
+
+# Python artifacts
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Keep only essential files
+# Archive should contain:
+# - Source code (crates/)
+# - Cargo.toml, Cargo.lock
+# - Documentation (*.md, docs/)
+# - Sample data (keep small examples)
+# - Build scripts 

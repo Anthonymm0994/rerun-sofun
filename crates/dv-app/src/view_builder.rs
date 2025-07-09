@@ -157,6 +157,7 @@ pub enum ViewConfig {
         data_source_id: Option<String>,
         x_column: Option<String>,
         y_columns: Vec<String>,
+        category_column: Option<String>,
     },
     Histogram {
         title: String,
@@ -914,6 +915,7 @@ impl ViewBuilderDialog {
                 data_source_id: self.selected_data_source.clone(),
                 x_column: first_temporal.clone().or_else(|| Some(first_numeric.clone())),
                 y_columns: if !second_numeric.is_empty() { vec![second_numeric] } else if !first_numeric.is_empty() { vec![first_numeric] } else { vec![] },
+                category_column: None,
             },
             PlotType::Scatter => ViewConfig::Scatter {
                 title: "Scatter Plot".to_string(),
@@ -1207,6 +1209,35 @@ impl ViewBuilderDialog {
                             self.selected_data_source = Some(source_id.clone());
                             if let Some((_, schema)) = self.data_sources.iter().find(|(id, _)| id == source_id) {
                                 self.columns = Self::analyze_schema(schema);
+                                
+                                // Reset configuration with new columns from the new data source
+                                if let Some(plot_type) = &self.plot_config_state.selected_plot_type {
+                                    config = self.create_default_config(plot_type);
+                                    // Update the data source id in the new config
+                                    match &mut config {
+                                        ViewConfig::TimeSeries { data_source_id, .. } |
+                                        ViewConfig::Scatter { data_source_id, .. } |
+                                        ViewConfig::Table { data_source_id, .. } |
+                                        ViewConfig::BarChart { data_source_id, .. } |
+                                        ViewConfig::Histogram { data_source_id, .. } |
+                                        ViewConfig::Line { data_source_id, .. } |
+                                        ViewConfig::BoxPlot { data_source_id, .. } |
+                                        ViewConfig::ViolinPlot { data_source_id, .. } |
+                                        ViewConfig::Heatmap { data_source_id, .. } |
+                                        ViewConfig::AnomalyDetection { data_source_id, .. } |
+                                        ViewConfig::CorrelationMatrix { data_source_id, .. } |
+                                        ViewConfig::Scatter3D { data_source_id, .. } |
+                                        ViewConfig::Surface3D { data_source_id, .. } |
+                                        ViewConfig::ParallelCoordinates { data_source_id, .. } |
+                                        ViewConfig::RadarChart { data_source_id, .. } |
+                                        ViewConfig::PolarPlot { data_source_id, .. } |
+                                        ViewConfig::Distribution { data_source_id, .. } |
+                                        ViewConfig::SummaryStats { data_source_id, .. } => {
+                                            *data_source_id = Some(source_id.clone());
+                                        }
+                                        _ => {}
+                                    }
+                                }
                             }
                         }
                     }
@@ -1844,6 +1875,64 @@ impl ViewBuilderDialog {
                 self.plot_config_state.is_valid = !column.is_empty();
             }
             
+            ViewConfig::Line { title, data_source_id: _, x_column, y_columns, category_column } => {
+                ui.horizontal(|ui| {
+                    ui.label("Title:");
+                    ui.text_edit_singleline(title);
+                });
+                
+                ui.add_space(4.0);
+                ui.label("X-Axis (optional):");
+                let current_x = x_column.as_ref().map(|s| s.as_str()).unwrap_or("Auto (Row Index)");
+                egui::ComboBox::from_id_source("config_line_x")
+                    .selected_text(current_x)
+                    .width(ui.available_width())
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(x_column, None, "Auto (Row Index)");
+                        for col in &self.columns.temporal {
+                            ui.selectable_value(x_column, Some(col.name.clone()), &col.name);
+                        }
+                        for col in &self.columns.numeric {
+                            ui.selectable_value(x_column, Some(col.name.clone()), &col.name);
+                        }
+                    });
+                
+                ui.add_space(4.0);
+                ui.label("Y-Axis (select one or more):");
+                
+                let mut any_selected = false;
+                for col in &self.columns.numeric {
+                    let mut selected = y_columns.contains(&col.name);
+                    if ui.checkbox(&mut selected, &col.name).changed() {
+                        if selected {
+                            if !y_columns.contains(&col.name) {
+                                y_columns.push(col.name.clone());
+                            }
+                        } else {
+                            y_columns.retain(|c| c != &col.name);
+                        }
+                    }
+                    if selected {
+                        any_selected = true;
+                    }
+                }
+                
+                ui.add_space(4.0);
+                ui.label("Category/Color (optional):");
+                let current_category = category_column.as_ref().map(|s| s.as_str()).unwrap_or("None");
+                egui::ComboBox::from_id_source("config_line_category")
+                    .selected_text(current_category)
+                    .width(ui.available_width())
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(category_column, None, "None");
+                        for col in &self.columns.categorical {
+                            ui.selectable_value(category_column, Some(col.name.clone()), &col.name);
+                        }
+                    });
+                
+                self.plot_config_state.is_valid = any_selected;
+            }
+            
             _ => {
                 ui.label("Configuration for this plot type coming soon...");
                 self.plot_config_state.is_valid = false;
@@ -2223,6 +2312,20 @@ impl ViewBuilderDialog {
                     format!("{} → {} series", x, y_columns.len())
                 }
             }
+            ViewConfig::Line { x_column, y_columns, category_column, .. } => {
+                let x = x_column.as_ref().map(|s| s.as_str()).unwrap_or("Row Index");
+                let mut text = if y_columns.is_empty() {
+                    String::new()
+                } else if y_columns.len() == 1 {
+                    format!("{} → {}", x, y_columns[0])
+                } else {
+                    format!("{} → {} series", x, y_columns.len())
+                };
+                if let Some(cat) = category_column {
+                    text.push_str(&format!(" (by {})", cat));
+                }
+                text
+            }
             ViewConfig::Scatter { x_column, y_column, .. } => {
                 format!("{} vs {}", x_column, y_column)
             }
@@ -2373,7 +2476,7 @@ impl ViewBuilderDialog {
                     view.config.value_column = value_column.clone();
                     views.push(Box::new(view));
                 }
-                ViewConfig::Line { title, data_source_id, x_column, y_columns } => {
+                ViewConfig::Line { title, data_source_id, x_column, y_columns, category_column } => {
                     use dv_views::plots::LinePlotView;
                     let id = uuid::Uuid::new_v4();
                     let mut view = LinePlotView::new(id, title.clone());
@@ -2382,6 +2485,7 @@ impl ViewBuilderDialog {
                     }));
                     view.config.x_column = x_column.clone();
                     view.config.y_columns = y_columns.clone();
+                    view.config.category_column = category_column.clone();
                     views.push(Box::new(view));
                 }
                 ViewConfig::Histogram { title, data_source_id, column } => {

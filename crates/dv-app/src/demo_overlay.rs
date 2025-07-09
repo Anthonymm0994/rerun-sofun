@@ -44,8 +44,8 @@ impl DemoOverlay {
                 );
             });
         
-        // Update animation
-        self.animation_timer += ctx.input(|i| i.stable_dt);
+        // Update animation with slower speed
+        self.animation_timer += ctx.input(|i| i.stable_dt) * 0.5; // Reduced speed
         
         // Center content
         let content_size = Vec2::new(900.0, 600.0);

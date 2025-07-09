@@ -44,11 +44,15 @@ A **F**ast, **R**esponsive, **O**rganized **G**raphics data visualization platfo
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/rerun-sofun.git
-cd rerun-sofun
+git clone https://github.com/yourusername/frog-viz.git
+cd frog-viz
 
 # Build and run
 cargo run --release
+
+# Or build the executable
+cargo build --release
+./target/release/frog  # or frog.exe on Windows
 ```
 
 ### First Run
@@ -132,25 +136,9 @@ Configuration files are stored in:
 - macOS: `~/Library/Application Support/frog-viz/`
 - Linux: `~/.config/frog-viz/`
 
-## 🤝 Contributing
+## 🔧 Development
 
-We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
-
-### Development Setup
-
-```bash
-# Install development dependencies
-cargo install cargo-watch
-
-# Run in development mode with auto-reload
-cargo watch -x run
-
-# Run tests
-cargo test
-
-# Check code quality
-cargo clippy -- -D warnings
-```
+This project is in early development. For development setup and guidelines, see [DEV_GUIDE.md](DEV_GUIDE.md).
 
 ## 📈 Performance Tips
 

@@ -1,1 +1,102 @@
-/target
+# Rust build artifacts
+/target/
+**/*.rs.bk
+*.pdb
+Cargo.lock
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+*.sublime-*
+.project
+.classpath
+.settings/
+
+# OS generated files
+Thumbs.db
+.DS_Store
+desktop.ini
+
+# Test and benchmark outputs
+*.profraw
+*.profdata
+tarpaulin-report.html
+criterion/
+
+# Documentation build
+/target/doc/
+/target/debug/
+/target/release/
+
+# Temporary files
+*.tmp
+*.temp
+*.log
+*.pid
+
+# Data files (keep samples, ignore user data)
+/user_data/
+/output/
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Screenshots and recordings
+/screenshots/
+/recordings/
+# Image files (but keep docs and icon sources)
+/*.png
+/*.jpg
+/*.gif
+/*.mp4
+
+# Backup files
+*.bak
+*.backup
+*.old
+
+# Environment files
+.env
+.env.local
+
+# Python cache (for test scripts)
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Coverage reports
+coverage/
+*.lcov
+.coverage
+
+# Build scripts output
+/build/
+/dist/
+
+# Package files
+*.tar.gz
+*.zip
+*.7z
+*.rar
+
+# Windows specific
+*.exe
+*.dll
+*.lib
+*.exp
+*.ilk
+
+# macOS specific
+.AppleDouble
+.LSOverride
+._*
+
+# Linux specific
+*~
+.directory
+.Trash-*

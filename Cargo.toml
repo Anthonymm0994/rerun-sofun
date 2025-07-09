@@ -59,7 +59,9 @@ dv-ui = { path = "crates/dv-ui" }
 opt-level = 1
 
 [profile.release]
-opt-level = 3
+opt-level = 1
 lto = false
-codegen-units = 16
-strip = false  # Don't strip symbols on Windows
+codegen-units = 1
+debug = true
+panic = "abort"
+strip = false
