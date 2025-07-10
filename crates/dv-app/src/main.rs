@@ -18,7 +18,7 @@ use dv_core::{
     navigation::{NavigationEngine, NavigationSpec, NavigationMode},
 };
 use dv_ui::{NavigationPanel, AppShell, Theme};
-use dv_data::sources::{SqliteSource, CombinedCsvSource};
+use dv_data::sources::{SqliteSource, CombinedCsvSource, ConfiguredCombinedCsvSource};
 
 mod demo;
 mod create_sample_db;
@@ -539,21 +539,36 @@ impl FrogApp {
     fn load_configured_files(&mut self, config_manager: dv_data::config::FileConfigManager) {
         use dv_data::config::FileType;
         
-        // Load each file as a separate data source
+        // Separate CSV and SQLite files
+        let mut csv_configs = Vec::new();
+        let mut sqlite_configs = Vec::new();
+        
         for (_path, config) in config_manager.configs {
-            let source_id = config.file_name();
-            
             match config.file_type {
-                FileType::Csv => {
-                    self.load_configured_csv(source_id, config);
-                }
-                FileType::Sqlite => {
-                    // Handle SQLite files
-                    if let Some(table_name) = config.selected_columns.iter().next() {
-                        let table_id = format!("{}:{}", source_id, table_name);
-                        self.load_configured_sqlite(table_id, config.clone(), table_name.clone());
-                    }
-                }
+                FileType::Csv => csv_configs.push(config),
+                FileType::Sqlite => sqlite_configs.push(config),
+            }
+        }
+        
+        // Load CSV files
+        if !csv_configs.is_empty() {
+            if csv_configs.len() == 1 {
+                // Single CSV file - load as individual source
+                let config = csv_configs.into_iter().next().unwrap();
+                let source_id = config.file_name();
+                self.load_configured_csv(source_id, config);
+            } else {
+                // Multiple CSV files - use ConfiguredCombinedCsvSource
+                self.load_configured_combined_csv(csv_configs);
+            }
+        }
+        
+        // Load SQLite files (always individual)
+        for config in sqlite_configs {
+            let source_id = config.file_name();
+            if let Some(table_name) = config.selected_columns.iter().next() {
+                let table_id = format!("{}:{}", source_id, table_name);
+                self.load_configured_sqlite(table_id, config.clone(), table_name.clone());
             }
         }
     }
@@ -589,6 +604,45 @@ impl FrogApp {
                 }
                 Err(e) => {
                     error!("Failed to load configured CSV: {}", e);
+                    *is_loading.write() = false;
+                    ctx.request_repaint();
+                }
+            }
+        });
+    }
+    
+    /// Load multiple configured CSV files as a combined source
+    fn load_configured_combined_csv(&mut self, configs: Vec<dv_data::config::FileConfig>) {
+        info!("Loading {} CSV files as combined source", configs.len());
+        
+        // Set loading state
+        *self.is_loading.write() = true;
+        
+        let ctx = self.egui_ctx.clone();
+        let viewer_context = self.viewer_context.clone();
+        let runtime = self.runtime.handle().clone();
+        let is_loading = self.is_loading.clone();
+        
+        runtime.spawn(async move {
+            match dv_data::sources::ConfiguredCombinedCsvSource::new(configs).await {
+                Ok(source) => {
+                    // Update navigation spec BEFORE adding the source
+                    if let Ok(spec) = source.navigation_spec().await {
+                        viewer_context.navigation.update_spec(spec);
+                    }
+                    
+                    // Add to data sources map with a combined source ID
+                    let combined_source_id = "Combined CSV Files".to_string();
+                    viewer_context.data_sources.write().insert(
+                        combined_source_id,
+                        Box::new(source) as Box<dyn DataSource>
+                    );
+                    
+                    *is_loading.write() = false;
+                    ctx.request_repaint();
+                }
+                Err(e) => {
+                    error!("Failed to load combined CSV files: {}", e);
                     *is_loading.write() = false;
                     ctx.request_repaint();
                 }
