@@ -1728,7 +1728,7 @@ impl eframe::App for FrogApp {
             
             if i.key_pressed(egui::Key::PlusEquals) {
                 let mut time_control = self.viewer_context.time_control.write();
-                time_control.speed = (time_control.speed + 0.5).min(10.0);
+                time_control.speed = (time_control.speed + 0.5).min(5.0);  // Reduced max from 10.0 to 5.0
             }
             
             // Ctrl+O to open file
@@ -1816,11 +1816,12 @@ impl eframe::App for FrogApp {
         
         // Handle time control playback
         if self.viewer_context.time_control.read().playing {
-            let speed = self.viewer_context.time_control.read().speed;
+            let speed = self.viewer_context.time_control.read().speed.clamp(0.1, 5.0); // Limit speed to reasonable range
             let dt = ctx.input(|i| i.stable_dt);
             
             // Calculate frames to advance using accumulator for smooth playback
-            let frames_per_second = speed * 15.0; // Reduced from 30.0 to 15.0 for slower playback
+            // Use a much more reasonable base rate: 2.0 frames per second at 1.0x speed
+            let frames_per_second = speed * 2.0;
             self.frame_accumulator += frames_per_second * dt as f64;
             
             // Only advance when we've accumulated at least one frame

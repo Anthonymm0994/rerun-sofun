@@ -197,7 +197,7 @@ impl NavigationPanel {
             [50.0, 20.0],
             egui::DragValue::new(&mut time_control.speed)
                 .speed(0.1)
-                .clamp_range(0.1..=10.0)
+                .clamp_range(0.1..=5.0)  // Reduced max from 10.0 to 5.0
                 .suffix("x")
                 .max_decimals(1)
         );
