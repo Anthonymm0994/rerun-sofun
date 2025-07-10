@@ -2,11 +2,13 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::collections::HashMap;
 use async_trait::async_trait;
-use arrow::datatypes::{Schema, Field};
+use arrow::datatypes::{Schema, Field, DataType};
 use arrow::record_batch::RecordBatch;
-use arrow::array::{ArrayRef, StringArray};
+use arrow::array::{ArrayRef, StringArray, NullArray};
 use dv_core::navigation::{NavigationPosition, NavigationSpec, NavigationMode, NavigationRange};
+use dv_core::data::DataSource;
 use crate::DataError;
 use super::csv_source::CsvSource;
 
@@ -23,6 +25,9 @@ pub struct CombinedCsvSource {
     
     /// Source file for each row range
     row_ranges: Vec<(usize, usize, usize)>, // (start, end, source_index)
+    
+    /// Mapping from column name to index in combined schema
+    column_mapping: HashMap<String, usize>,
 }
 
 impl CombinedCsvSource {
@@ -40,7 +45,7 @@ impl CombinedCsvSource {
         }
         
         // Merge schemas
-        let combined_schema = Self::merge_schemas(&sources)?;
+        let (combined_schema, column_mapping) = Self::merge_schemas(&sources)?;
         
         // Calculate row ranges
         let mut row_ranges = Vec::new();
@@ -58,46 +63,109 @@ impl CombinedCsvSource {
             schema: Arc::new(combined_schema),
             total_rows,
             row_ranges,
+            column_mapping,
         })
     }
     
-    /// Merge schemas from multiple sources
-    fn merge_schemas(sources: &[CsvSource]) -> Result<Schema, DataError> {
+    /// Merge schemas from multiple sources creating a union schema
+    fn merge_schemas(sources: &[CsvSource]) -> Result<(Schema, HashMap<String, usize>), DataError> {
         if sources.is_empty() {
             return Err(DataError::Other("No sources to merge".to_string()));
         }
         
-        // Start with the first schema
-        let mut fields: Vec<Field> = sources[0].schema.fields()
-            .iter()
-            .map(|f| f.as_ref().clone())
-            .collect();
+        // Collect all unique columns from all sources
+        let mut all_fields: HashMap<String, Field> = HashMap::new();
+        let mut column_mapping: HashMap<String, usize> = HashMap::new();
         
-        // Add a source file column
-        fields.insert(0, Field::new("_source_file", arrow::datatypes::DataType::Utf8, false));
+        // Add source file column first
+        let source_field = Field::new("_source_file", DataType::Utf8, false);
+        all_fields.insert("_source_file".to_string(), source_field);
+        column_mapping.insert("_source_file".to_string(), 0);
         
-        // For now, we'll require all CSV files to have the same schema
-        // In the future, we could do schema reconciliation
-        for (idx, source) in sources.iter().enumerate().skip(1) {
-            if source.schema.fields().len() != sources[0].schema.fields().len() {
-                return Err(DataError::SchemaDetection(
-                    format!("Schema mismatch: file {} has different number of columns", idx)
-                ));
-            }
-            
-            // Check field names match
-            for (i, field) in source.schema.fields().iter().enumerate() {
-                if field.name() != sources[0].schema.fields()[i].name() {
-                    return Err(DataError::SchemaDetection(
-                        format!("Schema mismatch: column '{}' in file {} doesn't match", field.name(), idx)
-                    ));
+        // Process each source schema
+        for source in sources {
+            for field in source.schema.fields() {
+                let field_name = field.name().clone();
+                if !all_fields.contains_key(&field_name) {
+                    // New field - add it
+                    all_fields.insert(field_name.clone(), field.as_ref().clone());
+                } else {
+                    // Existing field - check compatibility
+                    let existing_field = &all_fields[&field_name];
+                    if existing_field.data_type() != field.data_type() {
+                        // Try to find a compatible type (e.g., promote to string)
+                        let compatible_type = Self::find_compatible_type(existing_field.data_type(), field.data_type());
+                        let updated_field = Field::new(&field_name, compatible_type, true); // Make nullable for safety
+                        all_fields.insert(field_name.clone(), updated_field);
+                    }
                 }
             }
         }
         
-        Ok(Schema::new(fields))
+        // Create ordered field list and update column mapping
+        let mut fields: Vec<Field> = Vec::new();
+        
+        // Add source file column first
+        fields.push(all_fields["_source_file"].clone());
+        
+        // Add other fields in alphabetical order for consistency
+        let mut other_fields: Vec<_> = all_fields.iter()
+            .filter(|(name, _)| *name != "_source_file")
+            .collect();
+        other_fields.sort_by_key(|(name, _)| *name);
+        
+        for (idx, (name, field)) in other_fields.iter().enumerate() {
+            fields.push((*field).clone());
+            column_mapping.insert((*name).clone(), idx + 1); // +1 for source file column
+        }
+        
+        Ok((Schema::new(fields), column_mapping))
     }
     
+    /// Find a compatible data type for two different types
+    fn find_compatible_type(type1: &DataType, type2: &DataType) -> DataType {
+        match (type1, type2) {
+            // If types are the same, return it
+            (t1, t2) if t1 == t2 => t1.clone(),
+            // For different numeric types, promote to string for simplicity
+            (DataType::Int64, DataType::Float64) | (DataType::Float64, DataType::Int64) => DataType::Utf8,
+            // For any other mismatches, use string
+            _ => DataType::Utf8,
+        }
+    }
+    
+    /// Create a record batch with the combined schema from a source batch
+    fn align_batch_to_schema(&self, batch: RecordBatch, source_idx: usize) -> Result<RecordBatch, DataError> {
+        let source = &self.sources[source_idx];
+        let source_name = source.source_name();
+        let num_rows = batch.num_rows();
+        
+        // Create columns for the combined schema
+        let mut columns: Vec<ArrayRef> = Vec::new();
+        
+        // Add source file column
+        let source_array: ArrayRef = Arc::new(StringArray::from(vec![source_name; num_rows]));
+        columns.push(source_array);
+        
+        // Add other columns in schema order
+        for field in self.schema.fields().iter().skip(1) { // Skip source file column
+            let field_name = field.name();
+            
+            // Find this column in the source batch
+            if let Some(source_field_idx) = source.schema.fields().iter().position(|f| f.name() == field_name) {
+                // Column exists in source - use it
+                columns.push(batch.column(source_field_idx).clone());
+            } else {
+                // Column doesn't exist in source - create null array
+                let null_array: ArrayRef = Arc::new(NullArray::new(num_rows));
+                columns.push(null_array);
+            }
+        }
+        
+        RecordBatch::try_new(self.schema.clone(), columns)
+            .map_err(|e| DataError::Other(format!("Failed to create aligned batch: {}", e)))
+    }
+
     /// Find which source and local row index for a given global row
     #[allow(dead_code)]
     fn find_source_for_row(&self, row: usize) -> Option<(usize, usize)> {
@@ -167,21 +235,9 @@ impl dv_core::data::DataSource for CombinedCsvSource {
                     end: NavigationPosition::Sequential(local_end),
                 };
                 
-                let mut batch = source.query_range(&local_range).await?;
-                
-                // Add source file column
-                let source_name = source.source_name();
-                let num_rows = batch.num_rows();
-                let source_array: ArrayRef = Arc::new(
-                    StringArray::from(vec![source_name; num_rows])
-                );
-                
-                // Create new batch with source column
-                let mut columns = vec![source_array];
-                columns.extend_from_slice(batch.columns());
-                
-                batch = RecordBatch::try_new(self.schema.clone(), columns)?;
-                batches.push(batch);
+                let batch = source.query_range(&local_range).await?;
+                let aligned_batch = self.align_batch_to_schema(batch, source_idx)?;
+                batches.push(aligned_batch);
             }
         }
         
@@ -192,6 +248,8 @@ impl dv_core::data::DataSource for CombinedCsvSource {
         
         arrow::compute::concat_batches(&self.schema, &batches).map_err(|e| e.into())
     }
+    
+
     
     async fn row_count(&self) -> anyhow::Result<usize> {
         Ok(self.total_rows)
