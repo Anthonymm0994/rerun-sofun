@@ -65,28 +65,28 @@ impl FrogMascot {
         
         self.is_hovered = is_actually_hovered;
         
-        // Update animation with slower speeds for release builds
-        let dt = ui.input(|i| i.stable_dt);
-        self.time += dt * 0.1; // Further reduced from 0.5 to 0.1
-        self.blink_timer += dt * 0.3; // Slow down blinking significantly
+        // Update animation with much slower speeds
+        let dt = ui.input(|i| i.stable_dt) * 0.03; // Slow down ALL animations by 33x
+        self.time += dt; // Now effectively dt * 0.1
+        self.blink_timer += dt; // Now effectively dt * 0.1
         
         // Update tongue animation with slower speed
         if self.tongue_animation > 0.0 {
-            self.tongue_animation = (self.tongue_animation - dt * 0.5).max(0.0); // Further reduced from 1.0 to 0.5
+            self.tongue_animation = (self.tongue_animation - dt * 2.0).max(0.0); // Relative to slowed dt
         }
         
         // Hop on hover with slower speed
         if self.is_hovered && self.hop_progress < 1.0 {
-            self.hop_progress = (self.hop_progress + dt * 0.8).min(1.0); // Further reduced from 1.5 to 0.8
+            self.hop_progress = (self.hop_progress + dt * 3.0).min(1.0); // Relative to slowed dt
         } else if !self.is_hovered && self.hop_progress > 0.0 {
-            self.hop_progress = (self.hop_progress - dt * 0.5).max(0.0); // Further reduced from 1.0 to 0.5
+            self.hop_progress = (self.hop_progress - dt * 2.0).max(0.0); // Relative to slowed dt
         }
         
         let painter = ui.painter();
         let center = rect.center();
         
         // Gentle floating animation with slower speed
-        let float_offset = (self.time * 0.5).sin() * 2.0; // Further reduced from 1.0 to 0.5
+        let float_offset = (self.time * 2.0).sin() * 2.0; // Relative to slowed time
         let hop_offset = self.hop_progress * -20.0 * (1.0 - self.hop_progress); // Parabolic hop
         let body_center = center + Vec2::new(0.0, float_offset + hop_offset);
         
@@ -127,8 +127,8 @@ impl FrogMascot {
         let eye_y = body_center.y - body_size * 0.3;
         let eye_size = body_size * 0.25;
         
-        // Blink animation (blink every 10-12 seconds now due to slower timer)
-        let should_blink = (self.blink_timer % 10.0) > 9.7;
+        // Blink animation (blink every 3-4 seconds with the slowed timer)
+        let should_blink = (self.blink_timer % 3.5) > 3.3;
         let eye_height = if should_blink { 0.2 } else { 1.0 };
         
         // Get cursor position for eye tracking - make it less responsive

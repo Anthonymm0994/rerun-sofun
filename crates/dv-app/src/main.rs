@@ -316,8 +316,8 @@ struct FrogApp {
     /// Show floating summary stats window
     show_summary_stats: bool,
     
-    /// Loading state
-    is_loading: Arc<RwLock<bool>>,
+    /// Loading state - count of files being loaded
+    is_loading: Arc<RwLock<usize>>,
     
     /// Flag to open dashboard builder when data is loaded
     open_builder_on_load: bool,
@@ -378,7 +378,7 @@ impl FrogApp {
             frame_accumulator: 0.0,
             sqlite_table_selection: None,
             show_summary_stats: false,
-            is_loading: Arc::new(RwLock::new(false)),
+            is_loading: Arc::new(RwLock::new(0)),
             open_builder_on_load: false,
             dashboard_builder: ViewBuilderDialog::new_multi(Vec::new()),
             file_config_dialog: None,
@@ -450,8 +450,8 @@ impl FrogApp {
     fn open_multiple_csv_files(&mut self, paths: Vec<std::path::PathBuf>) {
         info!("Opening {} CSV files as combined source", paths.len());
         
-        // Set loading state
-        *self.is_loading.write() = true;
+        // Increment loading counter
+        *self.is_loading.write() += 1;
         
         let source_future = CombinedCsvSource::new(paths.clone());
         
@@ -471,12 +471,12 @@ impl FrogApp {
                     // Update data source
                     *viewer_context.data_sources.write() = HashMap::from([(Uuid::new_v4().to_string(), Box::new(source) as Box<dyn DataSource>)]);
                     
-                    *is_loading.write() = false;
+                    *is_loading.write() -= 1;
                     ctx.request_repaint();
                 }
                 Err(e) => {
                     error!("Failed to open multiple CSV files: {}", e);
-                    *is_loading.write() = false;
+                    *is_loading.write() -= 1;
                     ctx.request_repaint();
                 }
             }
@@ -565,8 +565,8 @@ impl FrogApp {
     fn load_configured_csv(&mut self, source_id: String, config: dv_data::config::FileConfig) {
         info!("Loading configured CSV: {} from {:?}", source_id, config.path);
         
-        // Set loading state
-        *self.is_loading.write() = true;
+        // Increment loading counter
+        *self.is_loading.write() += 1;
         
         let ctx = self.egui_ctx.clone();
         let viewer_context = self.viewer_context.clone();
@@ -576,23 +576,31 @@ impl FrogApp {
         runtime.spawn(async move {
             match dv_data::sources::ConfiguredCsvSource::new(config).await {
                 Ok(source) => {
-                    // Update navigation spec BEFORE adding the source
-                    if let Ok(spec) = source.navigation_spec().await {
-                        viewer_context.navigation.update_spec(spec);
+                    // Only update navigation spec if this is the first data source
+                    let is_first_source = viewer_context.data_sources.read().is_empty();
+                    if is_first_source {
+                        if let Ok(spec) = source.navigation_spec().await {
+                            viewer_context.navigation.update_spec(spec);
+                        }
                     }
                     
                     // Add to data sources map
                     viewer_context.data_sources.write().insert(
-                        source_id,
+                        source_id.clone(),
                         Box::new(source) as Box<dyn DataSource>
                     );
                     
-                    *is_loading.write() = false;
+                    let total_sources = viewer_context.data_sources.read().len();
+                    info!("Successfully loaded CSV '{}'. Total data sources: {}", source_id, total_sources);
+                    
+                    // Decrement loading counter
+                    *is_loading.write() -= 1;
                     ctx.request_repaint();
                 }
                 Err(e) => {
                     error!("Failed to load configured CSV: {}", e);
-                    *is_loading.write() = false;
+                    // Decrement loading counter even on error
+                    *is_loading.write() -= 1;
                     ctx.request_repaint();
                 }
             }
@@ -605,8 +613,8 @@ impl FrogApp {
     fn load_configured_sqlite(&mut self, source_id: String, config: dv_data::config::FileConfig, table_name: String) {
         info!("Loading configured SQLite table: {} from {:?}", table_name, config.path);
         
-        // Set loading state
-        *self.is_loading.write() = true;
+        // Increment loading counter
+        *self.is_loading.write() += 1;
         
         let ctx = self.egui_ctx.clone();
         let viewer_context = self.viewer_context.clone();
@@ -616,23 +624,31 @@ impl FrogApp {
         runtime.spawn(async move {
             match SqliteSource::new(config.path, table_name).await {
                 Ok(source) => {
-                    // Update navigation spec BEFORE adding the source
-                    if let Ok(spec) = source.navigation_spec().await {
-                        viewer_context.navigation.update_spec(spec);
+                    // Only update navigation spec if this is the first data source
+                    let is_first_source = viewer_context.data_sources.read().is_empty();
+                    if is_first_source {
+                        if let Ok(spec) = source.navigation_spec().await {
+                            viewer_context.navigation.update_spec(spec);
+                        }
                     }
                     
                     // Add to data sources map
                     viewer_context.data_sources.write().insert(
-                        source_id,
+                        source_id.clone(),
                         Box::new(source) as Box<dyn DataSource>
                     );
                     
-                    *is_loading.write() = false;
+                    let total_sources = viewer_context.data_sources.read().len();
+                    info!("Successfully loaded SQLite table '{}'. Total data sources: {}", source_id, total_sources);
+                    
+                    // Decrement loading counter
+                    *is_loading.write() -= 1;
                     ctx.request_repaint();
                 }
                 Err(e) => {
                     error!("Failed to load SQLite table: {}", e);
-                    *is_loading.write() = false;
+                    // Decrement loading counter even on error
+                    *is_loading.write() -= 1;
                     ctx.request_repaint();
                 }
             }
@@ -934,14 +950,14 @@ impl FrogApp {
             
             for i in 0..3 {
                 let offset = i as f32 * 2.0;
-                let circle_time = time * 0.05 + offset; // Reduced from 0.3 to 0.05
+                let circle_time = time * 0.4 + offset; // Increased to 0.4 (faster than original 0.3)
                 let radius = 200.0 + (circle_time.sin() * 50.0);
-                let alpha = ((circle_time * 0.1).sin() + 1.0) * 0.5 * 20.0; // Reduced from 0.5 to 0.1
+                let alpha = ((circle_time * 0.6).sin() + 1.0) * 0.5 * 20.0; // Increased to 0.6
                 
                 painter.circle(
                     rect.center() + Vec2::new(
-                        (circle_time * 0.1).cos() * 100.0, // Reduced from 0.7 to 0.1
-                        (circle_time * 0.08).sin() * 80.0   // Reduced from 0.5 to 0.08
+                        (circle_time * 0.8).cos() * 100.0, // Increased to 0.8
+                        (circle_time * 0.7).sin() * 80.0   // Increased to 0.7
                     ),
                     radius,
                     Color32::from_rgba_premultiplied(50, 100, 150, alpha as u8),
@@ -975,7 +991,7 @@ impl FrogApp {
                 
                 // Animated subtitle with flowing colors
                 let time = ui.ctx().input(|i| i.time) as f32;
-                let color_phase = (time * 0.1).sin() * 0.5 + 0.5; // Reduced from 0.5 to 0.1
+                let color_phase = (time * 0.5).sin() * 0.5 + 0.5; // Increased to 0.5 for more dynamic colors
                 let subtitle_color = Color32::from_rgb(
                     (140.0 + color_phase * 60.0) as u8,
                     (150.0 + color_phase * 50.0) as u8,
@@ -1823,7 +1839,7 @@ impl eframe::App for FrogApp {
         let has_data = !self.viewer_context.data_sources.read().is_empty();
         
         // Check if we should open dashboard builder automatically
-        if self.open_builder_on_load && has_data && self.view_builder.is_none() && !*self.is_loading.read() {
+        if self.open_builder_on_load && has_data && self.view_builder.is_none() && *self.is_loading.read() == 0 {
             // Data is loaded, open dashboard builder
             self.open_builder_on_load = false;
             
@@ -1934,7 +1950,7 @@ impl eframe::App for FrogApp {
         }
         
         // Show loading indicator if loading
-        if *self.is_loading.read() {
+        if *self.is_loading.read() > 0 {
             egui::Window::new("Loading...")
                 .collapsible(false)
                 .resizable(false)
