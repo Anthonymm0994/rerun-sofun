@@ -539,9 +539,12 @@ impl FrogApp {
     fn load_configured_files(&mut self, config_manager: dv_data::config::FileConfigManager) {
         use dv_data::config::FileType;
         
+        info!("Loading {} configured files", config_manager.configs.len());
+        
         // Load each file as a separate data source
         for (_path, config) in config_manager.configs {
             let source_id = config.file_name();
+            info!("Loading file: {} (type: {:?})", source_id, config.file_type);
             
             match config.file_type {
                 FileType::Csv => {
@@ -1768,8 +1771,8 @@ impl eframe::App for FrogApp {
             let dt = ctx.input(|i| i.stable_dt);
             
             // Calculate frames to advance using accumulator for smooth playback
-            // Use a much more reasonable base rate: 2.0 frames per second at 1.0x speed
-            let frames_per_second = speed * 2.0;
+            // Use a much more reasonable base rate: 0.5 frames per second at 1.0x speed
+            let frames_per_second = speed * 0.5;
             self.frame_accumulator += frames_per_second * dt as f64;
             
             // Only advance when we've accumulated at least one frame

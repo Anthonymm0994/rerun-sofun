@@ -158,13 +158,13 @@ impl ConfiguredCombinedCsvSource {
                 // Column doesn't exist in source - create null array
                 let null_array: ArrayRef = Arc::new(NullArray::new(num_rows));
                 columns.push(null_array);
+                }
             }
-        }
         
         RecordBatch::try_new(self.schema.clone(), columns)
             .map_err(|e| DataError::Other(format!("Failed to create aligned batch: {}", e)))
     }
-
+    
     /// Find which source and local row index for a given global row
     #[allow(dead_code)]
     fn find_source_for_row(&self, row: usize) -> Option<(usize, usize)> {
