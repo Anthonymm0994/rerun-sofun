@@ -934,14 +934,14 @@ impl FrogApp {
             
             for i in 0..3 {
                 let offset = i as f32 * 2.0;
-                let circle_time = time * 0.3 + offset;
+                let circle_time = time * 0.05 + offset; // Reduced from 0.3 to 0.05
                 let radius = 200.0 + (circle_time.sin() * 50.0);
-                let alpha = ((circle_time * 0.5).sin() + 1.0) * 0.5 * 20.0;
+                let alpha = ((circle_time * 0.1).sin() + 1.0) * 0.5 * 20.0; // Reduced from 0.5 to 0.1
                 
                 painter.circle(
                     rect.center() + Vec2::new(
-                        (circle_time * 0.7).cos() * 100.0,
-                        (circle_time * 0.5).sin() * 80.0
+                        (circle_time * 0.1).cos() * 100.0, // Reduced from 0.7 to 0.1
+                        (circle_time * 0.08).sin() * 80.0   // Reduced from 0.5 to 0.08
                     ),
                     radius,
                     Color32::from_rgba_premultiplied(50, 100, 150, alpha as u8),
@@ -975,7 +975,7 @@ impl FrogApp {
                 
                 // Animated subtitle with flowing colors
                 let time = ui.ctx().input(|i| i.time) as f32;
-                let color_phase = (time * 0.5).sin() * 0.5 + 0.5;
+                let color_phase = (time * 0.1).sin() * 0.5 + 0.5; // Reduced from 0.5 to 0.1
                 let subtitle_color = Color32::from_rgb(
                     (140.0 + color_phase * 60.0) as u8,
                     (150.0 + color_phase * 50.0) as u8,

@@ -67,26 +67,26 @@ impl FrogMascot {
         
         // Update animation with slower speeds for release builds
         let dt = ui.input(|i| i.stable_dt);
-        self.time += dt * 0.5; // Slow down the general animation time
+        self.time += dt * 0.1; // Further reduced from 0.5 to 0.1
         self.blink_timer += dt;
         
         // Update tongue animation with slower speed
         if self.tongue_animation > 0.0 {
-            self.tongue_animation = (self.tongue_animation - dt * 1.0).max(0.0); // Reduced from 2.0
+            self.tongue_animation = (self.tongue_animation - dt * 0.5).max(0.0); // Further reduced from 1.0 to 0.5
         }
         
         // Hop on hover with slower speed
         if self.is_hovered && self.hop_progress < 1.0 {
-            self.hop_progress = (self.hop_progress + dt * 1.5).min(1.0); // Reduced from 3.0
+            self.hop_progress = (self.hop_progress + dt * 0.8).min(1.0); // Further reduced from 1.5 to 0.8
         } else if !self.is_hovered && self.hop_progress > 0.0 {
-            self.hop_progress = (self.hop_progress - dt * 1.0).max(0.0); // Reduced from 2.0
+            self.hop_progress = (self.hop_progress - dt * 0.5).max(0.0); // Further reduced from 1.0 to 0.5
         }
         
         let painter = ui.painter();
         let center = rect.center();
         
         // Gentle floating animation with slower speed
-        let float_offset = (self.time * 1.0).sin() * 2.0; // Reduced from 2.0 to 1.0
+        let float_offset = (self.time * 0.5).sin() * 2.0; // Further reduced from 1.0 to 0.5
         let hop_offset = self.hop_progress * -20.0 * (1.0 - self.hop_progress); // Parabolic hop
         let body_center = center + Vec2::new(0.0, float_offset + hop_offset);
         
