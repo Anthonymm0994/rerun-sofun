@@ -68,7 +68,7 @@ impl FrogMascot {
         // Update animation with slower speeds for release builds
         let dt = ui.input(|i| i.stable_dt);
         self.time += dt * 0.1; // Further reduced from 0.5 to 0.1
-        self.blink_timer += dt;
+        self.blink_timer += dt * 0.3; // Slow down blinking significantly
         
         // Update tongue animation with slower speed
         if self.tongue_animation > 0.0 {
@@ -127,11 +127,11 @@ impl FrogMascot {
         let eye_y = body_center.y - body_size * 0.3;
         let eye_size = body_size * 0.25;
         
-        // Blink animation (blink every 3-4 seconds)
-        let should_blink = (self.blink_timer % 3.5) > 3.3;
+        // Blink animation (blink every 10-12 seconds now due to slower timer)
+        let should_blink = (self.blink_timer % 10.0) > 9.7;
         let eye_height = if should_blink { 0.2 } else { 1.0 };
         
-        // Get cursor position for eye tracking - ALWAYS follow cursor on home screen
+        // Get cursor position for eye tracking - make it less responsive
         let cursor_pos = ui.input(|i| i.pointer.hover_pos()).unwrap_or(center);
         
         for side in [-1.0, 1.0] {

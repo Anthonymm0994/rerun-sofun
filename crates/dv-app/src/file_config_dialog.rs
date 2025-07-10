@@ -80,6 +80,11 @@ impl FileConfigDialog {
                     ui.label(RichText::new("📁").size(28.0));
                     ui.label(RichText::new("File Configuration").size(24.0).strong().color(Color32::WHITE));
                     
+                    // Show file count
+                    let file_count = self.config_manager.configs.len();
+                    ui.label(RichText::new(format!("({} file{})", file_count, if file_count == 1 { "" } else { "s" }))
+                        .size(16.0).color(Color32::from_gray(180)));
+                    
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui.button(RichText::new("✖").size(20.0))
                             .on_hover_text("Close without loading")
@@ -166,8 +171,9 @@ impl FileConfigDialog {
                         // Load button - only enabled when we have files
                         let can_load = !self.config_manager.configs.is_empty();
                         
+                        let file_count = self.config_manager.configs.len();
                         let load_button = egui::Button::new(
-                            RichText::new("✅ Load Files")
+                            RichText::new(format!("✅ Load {} File{}", file_count, if file_count == 1 { "" } else { "s" }))
                                 .size(18.0)
                                 .color(Color32::WHITE)
                         )
@@ -175,7 +181,7 @@ impl FileConfigDialog {
                         .rounding(egui::Rounding::same(6.0));
                         
                         if ui.add_enabled(can_load, load_button)
-                            .on_hover_text("Load files with current configuration")
+                            .on_hover_text(format!("Load all {} configured file{}", file_count, if file_count == 1 { "" } else { "s" }))
                             .clicked() {
                             result = Some(self.config_manager.clone());
                             close = true;
